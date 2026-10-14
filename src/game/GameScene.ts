@@ -7,7 +7,7 @@ const MISS_LIVES = 1; // потеря жизней за пропуск
 const START_LIVES = 5; // сколько жизней в начале партии
 const MOUSE_VISIBLE_MS = 1_000; // сколько мышь видна, мс (1 секунда)
 const SPAWN_INTERVAL_MS = 1_200; // как часто появляется новая мышь, мс
-const PHASE_2_START_MS = 60_000; // переход после 60 игровых секунд
+const PHASE_2_SCORE_THRESHOLD = 10; // счёт для перехода в фазу 2
 const PHASE_2_SPAWN_INTERVAL_MS = 800;
 const PHASE_2_MOUSE_VISIBLE_MS = 700;
 const GRID_COLS = 3; // нор по горизонтали
@@ -100,9 +100,6 @@ export class GameScene extends Phaser.Scene {
     if (this.remainingMs === 0) {
       this.endGame();
       return false;
-    }
-    if (this.gameStage === 1 && GAME_DURATION_MS - this.remainingMs >= PHASE_2_START_MS) {
-      this.enterPhase2();
     }
     return true;
   }
@@ -359,6 +356,7 @@ export class GameScene extends Phaser.Scene {
     this.scoreText.setText(String(this.score));
     this.feedback(hole.x, hole.y, `+${HIT_POINTS}`, COLORS.buttonPressed);
     this.clearMouse(hole, true);
+    if (this.score >= PHASE_2_SCORE_THRESHOLD) this.enterPhase2();
   }
 
   private missMouse(hole: Hole): void {
