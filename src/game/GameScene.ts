@@ -7,6 +7,9 @@ const MISS_LIVES = 1; // потеря жизней за пропуск
 const START_LIVES = 5; // сколько жизней в начале партии
 const MOUSE_VISIBLE_MS = 1_000; // сколько мышь видна, мс (1 секунда)
 const SPAWN_INTERVAL_MS = 1_200; // как часто появляется новая мышь, мс
+const PHASE_2_START_MS = 60_000; // переход после 60 игровых секунд
+const PHASE_2_SPAWN_INTERVAL_MS = 800;
+const PHASE_2_MOUSE_VISIBLE_MS = 700;
 const GRID_COLS = 3; // нор по горизонтали
 const GRID_ROWS = 3; // нор по вертикали
 const CELL_SIZE = 200; // расстояние между центрами нор
@@ -40,11 +43,13 @@ interface Hole {
  */
 export class GameScene extends Phaser.Scene {
   private phase: 'menu' | 'playing' | 'paused' | 'gameover' = 'menu';
+  private gameStage: 1 | 2 = 1; // игровые правила, независимо от паузы и меню
   private holes: Hole[] = [];
   private score = 0;
   private lives = START_LIVES;
   private remainingMs = GAME_DURATION_MS;
 
+  private stageText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -65,6 +70,7 @@ export class GameScene extends Phaser.Scene {
   create(data: { startImmediately?: boolean } = {}): void {
     // Полный сброс состояния (нужно и для кнопки «Заново»)
     this.phase = 'menu';
+    this.gameStage = 1;
     this.score = 0;
     this.lives = START_LIVES;
     this.remainingMs = GAME_DURATION_MS;
@@ -94,6 +100,9 @@ export class GameScene extends Phaser.Scene {
     if (this.remainingMs === 0) {
       this.endGame();
       return false;
+    }
+    if (this.gameStage === 1 && GAME_DURATION_MS - this.remainingMs >= PHASE_2_START_MS) {
+      this.enterPhase2();
     }
     return true;
   }
@@ -204,6 +213,10 @@ export class GameScene extends Phaser.Scene {
       this.hearts.push(heart);
       this.hud.add(heart);
     }
+    this.stageText = this.makeText(w / 2, 119,
+      this.gameStage === 1 ? 'ФАЗА 1' : 'ФАЗА 2 · Мышки быстрее!',
+      18, this.gameStage === 1 ? COLORS.muted : '#9a5b29', 0.5, 0.5);
+    this.hud.add(this.stageText);
     this.drawHearts();
     this.hud.setVisible(this.phase === 'playing' || this.phase === 'paused');
   }
@@ -297,13 +310,27 @@ export class GameScene extends Phaser.Scene {
 
     this.hud.setVisible(true);
 
-    // Периодически появляется новая мышь
+    this.scheduleSpawns();
+    this.spawnMouse(); // первая мышь — сразу
+  }
+
+  private scheduleSpawns(): void {
+    // Заменяем один таймер; повторные проверки фазы не создают копий.
+    this.spawnTimer?.remove();
     this.spawnTimer = this.time.addEvent({
-      delay: SPAWN_INTERVAL_MS,
+      delay: this.gameStage === 1 ? SPAWN_INTERVAL_MS : PHASE_2_SPAWN_INTERVAL_MS,
       loop: true,
       callback: () => this.spawnMouse(),
     });
-    this.spawnMouse(); // первая мышь — сразу
+  }
+
+  private enterPhase2(): void {
+    if (this.phase !== 'playing' || this.gameStage !== 1) return;
+    this.gameStage = 2;
+    this.scheduleSpawns();
+    this.stageText.setText('ФАЗА 2 · Мышки быстрее!').setColor('#9a5b29');
+    this.tweens.add({ targets: this.stageText, alpha: 0.65, duration: 200,
+      yoyo: true, repeat: 2 });
   }
 
   private spawnMouse(): void {
@@ -318,8 +345,9 @@ export class GameScene extends Phaser.Scene {
 
     hole.mouse = mouse;
 
-    // Через MOUSE_VISIBLE_MS мышь прячется сама
-    hole.hideTimer = this.time.delayedCall(MOUSE_VISIBLE_MS, () => {
+    // Уже появившаяся мышь сохраняет срок; новые используют правила текущей фазы.
+    const visibleMs = this.gameStage === 1 ? MOUSE_VISIBLE_MS : PHASE_2_MOUSE_VISIBLE_MS;
+    hole.hideTimer = this.time.delayedCall(visibleMs, () => {
       if (hole.mouse === mouse) this.missMouse(hole);
     });
   }
