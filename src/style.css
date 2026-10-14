@@ -1,0 +1,32 @@
+:root {
+  font-family: 'Trebuchet MS', Arial, sans-serif;
+  color: #493e32;
+  background: #f2eddf;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+* { box-sizing: border-box; }
+html, body, #app { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; }
+#app {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: radial-gradient(ellipse at top, #fffaf0, #e5ead6);
+}
+#game {
+  width: min(100%, 1100px);
+  height: min(100%, 800px);
+  min-height: 0;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgb(79 96 49 / 18%);
+}
+canvas { display: block; touch-action: none; }
+@media (max-width: 600px), (max-height: 480px) {
+  #app { padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  #game { border-radius: 0; }
+}
