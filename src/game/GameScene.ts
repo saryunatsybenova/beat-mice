@@ -35,11 +35,11 @@ interface Hole {
 /**
  * Игра «Бей мышей».
  *
- * Три фазы: menu (правила + «Играть»), playing (сама игра),
+ * Четыре фазы: menu (правила + «Играть»), playing (сама игра), paused (пауза),
  * gameover (итоговый счёт + «Заново»).
  */
 export class GameScene extends Phaser.Scene {
-  private phase: 'menu' | 'playing' | 'gameover' = 'menu';
+  private phase: 'menu' | 'playing' | 'paused' | 'gameover' = 'menu';
   private holes: Hole[] = [];
   private score = 0;
   private lives = START_LIVES;
@@ -56,6 +56,7 @@ export class GameScene extends Phaser.Scene {
   private uiLayer!: Phaser.GameObjects.Container;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private deadline = 0;
+  private pausedTweens: Phaser.Tweens.Tween[] = [];
 
   constructor() {
     super('GameScene');
@@ -70,6 +71,8 @@ export class GameScene extends Phaser.Scene {
     this.holes = [];
     this.spawnTimer = undefined;
     this.deadline = 0;
+    this.time.paused = false;
+    this.pausedTweens = [];
 
     this.layout();
     this.scale.on('resize', this.layout, this);
@@ -115,6 +118,7 @@ export class GameScene extends Phaser.Scene {
       this.uiLayer.destroy();
       if (this.phase === 'menu') this.showMenu();
       if (this.phase === 'gameover') this.showGameOver();
+      if (this.phase === 'paused') this.showPause();
     }
   }
 
@@ -201,7 +205,7 @@ export class GameScene extends Phaser.Scene {
       this.hud.add(heart);
     }
     this.drawHearts();
-    this.hud.setVisible(this.phase === 'playing');
+    this.hud.setVisible(this.phase === 'playing' || this.phase === 'paused');
   }
 
   private drawHearts(): void {
@@ -221,6 +225,7 @@ export class GameScene extends Phaser.Scene {
 
   private setupInput(): void {
     this.input.on('pointerdown', this.handlePointerDown, this);
+    this.input.keyboard?.on('keydown', this.handlePauseKey, this);
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -241,6 +246,9 @@ export class GameScene extends Phaser.Scene {
 
   private cleanup(): void {
     this.input.off('pointerdown', this.handlePointerDown, this);
+    this.input.keyboard?.off('keydown', this.handlePauseKey, this);
+    this.time.paused = false;
+    this.pausedTweens = [];
     this.scale.off('resize', this.layout, this);
     this.spawnTimer?.remove();
     this.spawnTimer = undefined;
@@ -251,6 +259,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ===== Игровая логика =====
+
+  private handlePauseKey(event: KeyboardEvent): void {
+    // code работает и при русской раскладке; удержание не переключает паузу многократно.
+    if (event.repeat || (event.code !== 'KeyP' && event.code !== 'Escape')) return;
+    if (this.phase !== 'playing' && this.phase !== 'paused') return;
+    event.preventDefault();
+    if (this.phase === 'playing') this.pauseGame();
+    else this.resumeGame();
+  }
+
+  private pauseGame(): void {
+    if (!this.refreshTime()) return;
+    this.phase = 'paused';
+    this.time.paused = true; // сохраняем прогресс появления и скрытия мышей
+    this.pausedTweens = this.tweens.getTweens().filter((tween) => !tween.isPaused());
+    this.pausedTweens.forEach((tween) => tween.pause());
+    this.showPause();
+  }
+
+  private resumeGame(): void {
+    if (this.phase !== 'paused') return;
+    // Исключаем время паузы из отсчёта реальных часов браузера.
+    this.deadline = performance.now() + this.remainingMs;
+    this.uiLayer.destroy();
+    this.phase = 'playing';
+    this.time.paused = false;
+    this.pausedTweens.forEach((tween) => tween.resume());
+    this.pausedTweens = [];
+  }
 
   private startGame(): void {
     if (this.phase !== 'menu') return;
@@ -302,7 +339,10 @@ export class GameScene extends Phaser.Scene {
     this.lives = Math.max(0, this.lives - MISS_LIVES);
     this.drawHearts();
     this.feedback(hole.x, hole.y, '−♥', COLORS.pink);
-    this.cameras.main.shake(120, 0.003);
+    // Реакция HUD тоже приостанавливается вместе с игровыми анимациями.
+    this.tweens.killTweensOf(this.hud);
+    this.hud.setX(0);
+    this.tweens.add({ targets: this.hud, x: 4, duration: 30, yoyo: true, repeat: 1 });
     const lostHeart = this.hearts[this.lives];
     if (lostHeart) {
       this.tweens.killTweensOf(lostHeart);
@@ -369,7 +409,18 @@ export class GameScene extends Phaser.Scene {
       `Попадание: +${HIT_POINTS} · Пропуск: −${MISS_LIVES} жизнь\n${START_LIVES} жизней · ${GAME_DURATION_MS / 1000} секунд`,
       20, COLORS.muted, 0.5, 0.5));
     this.uiLayer.add(this.createButton(w / 2, top + 435, 'Играть', () => this.startGame()));
-    this.uiLayer.add(this.makeText(w / 2, top + 496, 'Мышью или касанием', 17, COLORS.muted, 0.5, 0.5));
+    this.uiLayer.add(this.makeText(w / 2, top + 496, 'Мышь / касание · P или Esc — пауза', 17, COLORS.muted, 0.5, 0.5));
+  }
+
+  private showPause(): void {
+    const { w, top } = this.createOverlay();
+    this.uiLayer.add(this.makeText(w / 2, top + 155, 'ПАУЗА', 44, COLORS.ink, 0.5, 0.5));
+    this.uiLayer.add(this.makeText(w / 2, top + 235,
+      'Мышки отдыхают.\nВремя, жизни и счёт сохранены.', 23, COLORS.muted, 0.5, 0.5));
+    this.uiLayer.add(this.makeText(w / 2, top + 325,
+      `Счёт: ${this.score} · Жизни: ${this.lives}`, 24, COLORS.ink, 0.5, 0.5));
+    this.uiLayer.add(this.createButton(w / 2, top + 435, 'Продолжить', () => this.resumeGame()));
+    this.uiLayer.add(this.makeText(w / 2, top + 496, 'P или Esc — продолжить', 18, COLORS.muted, 0.5, 0.5));
   }
 
   private showGameOver(): void {
