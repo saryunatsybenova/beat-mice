@@ -10,6 +10,6 @@ export const BALANCE = {
   phase2Score: 10,
   phases: {
     1: { spawnIntervalMs: 1_200, mouseVisibleMs: 1_000 },
-    2: { spawnIntervalMs: 800, mouseVisibleMs: 700 },
+    2: { spawnIntervalMs: 500, mouseVisibleMs: 500 },
   },
 } as const;
