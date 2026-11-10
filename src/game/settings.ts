@@ -9,7 +9,7 @@ export const BALANCE = {
   mouseHitRadius: 58,
   phase2Score: 10,
   phases: {
-    1: { spawnIntervalMs: 1_200, mouseVisibleMs: 1_000 },
-    2: { spawnIntervalMs: 700, mouseVisibleMs: 600 },
+    1: { spawnIntervalMs: 1_400, mouseVisibleMs: 1_400 },
+    2: { spawnIntervalMs: 1_100, mouseVisibleMs: 1_000 },
   },
 } as const;

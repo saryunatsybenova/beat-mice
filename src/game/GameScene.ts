@@ -4,13 +4,18 @@ import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { BALANCE } from './settings';
 import { COLORS } from './theme';
+import { ProgressStore } from './ProgressStore';
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
+  private readonly progress = new ProgressStore();
   private field!: MouseField;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
+  private bestScoreAtGameStart = 0;
+  private hadRecordAtGameStart = false;
+  private showedRecordNotification = false;
 
   constructor() { super('GameScene'); }
 
@@ -23,7 +28,7 @@ export class GameScene extends Phaser.Scene {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
       restart: () => this.scene.restart({ startImmediately: true }),
-    });
+    }, () => this.progress.snapshot);
     this.layout();
     this.scale.on('resize', this.layout, this);
     this.input.on('pointerdown', this.handlePointerDown, this);
@@ -73,6 +78,10 @@ export class GameScene extends Phaser.Scene {
 
   private startGame(): void {
     if (this.state.phase !== 'menu') return;
+    const progress = this.progress.snapshot;
+    this.bestScoreAtGameStart = progress.bestScore;
+    this.hadRecordAtGameStart = progress.hasBestScore;
+    this.showedRecordNotification = false;
     this.state.start(performance.now());
     this.ui.start();
     this.scheduleSpawns();
@@ -109,7 +118,11 @@ export class GameScene extends Phaser.Scene {
   private hitMouse(hole: Hole): void {
     if (!this.refreshTime() || hole.mouse === null) return;
     const enteredPhase2 = this.state.hit();
-    this.ui.updateScore();
+    this.progress.recordScore(this.state.score);
+    const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&
+      this.state.score > this.bestScoreAtGameStart;
+    if (newRecord) this.showedRecordNotification = true;
+    this.ui.updateScore(newRecord);
     this.ui.feedback(hole.x, hole.y, `+${BALANCE.hitPoints}`, COLORS.buttonPressed);
     this.field.clearMouse(hole, true);
     if (enteredPhase2) {
@@ -130,6 +143,7 @@ export class GameScene extends Phaser.Scene {
   private endGame(): void {
     if (this.state.phase !== 'playing') return;
     this.state.end();
+    this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();
     this.ui.showGameOver();
   }

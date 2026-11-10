@@ -4,6 +4,7 @@ import { BALANCE } from '../settings';
 import { COLORS, ANIMATION } from '../theme';
 import { makeMouse } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
+import type { PlayerProgress } from '../ProgressStore';
 
 interface UIActions { start: () => void; resume: () => void; restart: () => void; }
 
@@ -11,6 +12,7 @@ interface UIActions { start: () => void; resume: () => void; restart: () => void
 export class GameUI {
   private stageText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
+  private bestScoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -19,7 +21,7 @@ export class GameUI {
   private layoutHeight = 640;
 
   constructor(private readonly scene: Phaser.Scene, private readonly state: GameState,
-    private readonly actions: UIActions) {}
+    private readonly actions: UIActions, private readonly getProgress: () => Readonly<PlayerProgress>) {}
 
   resize(width: number, height: number): void {
     this.layoutWidth = width;
@@ -37,7 +39,11 @@ export class GameUI {
   hideOverlay(): void { this.uiLayer?.destroy(); this.uiLayer = undefined; }
   start(): void { this.hideOverlay(); this.hud.setVisible(true); }
   updateTime(): void { this.timeText.setText(`${Math.ceil(this.state.remainingMs / 1000)} с`); }
-  updateScore(): void { this.scoreText.setText(String(this.state.score)); }
+  updateScore(newRecord: boolean): void {
+    this.scoreText.setText(String(this.state.score));
+    this.bestScoreText.setText(this.getProgress().bestScore.toLocaleString('ru-RU'));
+    if (newRecord) this.showNewRecord();
+  }
 
   showPhase2(): void {
     this.stageText.setText('ФАЗА 2 · Мышки быстрее!').setColor('#9a5b29');
@@ -63,22 +69,27 @@ export class GameUI {
 
   private createHud(): void {
     const w = this.layoutWidth;
-    const cardWidth = (w - 48) / 3;
+    const cardWidth = (w - 48) / 4;
     this.hud = this.scene.add.container(0, 0).setDepth(10);
     this.hearts = [];
-    const labels = ['СЧЁТ', 'ЖИЗНИ', 'ВРЕМЯ'];
-    for (let i = 0; i < 3; i++) {
+    const labels = ['СЧЁТ', 'РЕКОРД', 'ЖИЗНИ', 'ВРЕМЯ'];
+    for (let i = 0; i < 4; i++) {
       const x = 16 + i * (cardWidth + 8);
       this.hud.add(panel(this.scene, x, 18, cardWidth, 91, 20));
-      this.hud.add(makeText(this.scene, x + cardWidth / 2, 40, labels[i], 16, COLORS.muted, 0.5, 0.5));
+      this.hud.add(makeText(this.scene, x + cardWidth / 2, 40, labels[i], 14, COLORS.muted, 0.5, 0.5));
     }
     this.scoreText = makeText(this.scene, 16 + cardWidth / 2, 76, String(this.state.score), 32, COLORS.ink, 0.5, 0.5);
+    const progress = this.getProgress();
+    this.bestScoreText = makeText(this.scene, 24 + cardWidth * 1.5, 76,
+      progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
     this.timeText = makeText(this.scene, w - 16 - cardWidth / 2, 76,
       `${Math.ceil(this.state.remainingMs / 1000)} с`, 30, COLORS.ink, 0.5, 0.5);
-    this.hud.add([this.scoreText, this.timeText]);
+    this.hud.add([this.scoreText, this.bestScoreText, this.timeText]);
+    const livesCenter = 16 + 2 * (cardWidth + 8) + cardWidth / 2;
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
-      const heart = this.scene.add.graphics().setPosition(w / 2 + (i - (BALANCE.startLives - 1) / 2) * spacing, 77);
+      const heart = this.scene.add.graphics()
+        .setPosition(livesCenter + (i - (BALANCE.startLives - 1) / 2) * spacing, 77);
       this.hearts.push(heart);
       this.hud.add(heart);
     }
@@ -103,6 +114,15 @@ export class GameUI {
       ease: 'Cubic.out', onComplete: () => text.destroy() });
   }
 
+  private showNewRecord(): void {
+    const text = makeText(this.scene, 20, 148, 'Новый рекорд!', 20, COLORS.buttonPressed, 0, 0.5)
+      .setDepth(20);
+    this.scene.tweens.add({
+      targets: text, alpha: 0, duration: 1_500, delay: 500,
+      onComplete: () => text.destroy(),
+    });
+  }
+
   private createOverlay(): { w: number; top: number; layer: Phaser.GameObjects.Container } {
     const w = this.layoutWidth, h = this.layoutHeight;
     const cardWidth = Math.min(560, w - 32), top = (h - 530) / 2;
@@ -121,9 +141,7 @@ export class GameUI {
     layer.add(makeText(this.scene, w / 2, top + 209, 'Маленькая игра в большом саду', 20, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 276,
       'Нажимай на мышек,\nпока они не спрятались!', 24, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 342,
-      `Попадание: +${BALANCE.hitPoints} · Пропуск: −${BALANCE.missLives} жизнь\n${BALANCE.startLives} жизней · ${BALANCE.durationMs / 1000} секунд`,
-      20, COLORS.muted, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 365, this.progressSummary(), 24, COLORS.buttonPressed, 0.5, 0.5));
     layer.add(createButton(this.scene, w / 2, top + 435, 'Играть', this.actions.start));
     layer.add(makeText(this.scene, w / 2, top + 496, 'Мышь / касание · P или Esc — пауза', 17, COLORS.muted, 0.5, 0.5));
   }
@@ -146,10 +164,16 @@ export class GameUI {
     layer.add(makeText(this.scene, w / 2, top + 226,
       this.state.lives === 0 ? 'Мышки оказались проворнее!' : 'Время вышло — хороший улов!',
       21, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 288, 'ТВОЙ СЧЁТ', 18, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 348, String(this.state.score), 64, COLORS.buttonPressed, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 280, 'СЧЁТ ЗА ПАРТИЮ', 18, COLORS.muted, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 332, String(this.state.score), 58, COLORS.buttonPressed, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 386, this.progressSummary(), 18, COLORS.muted, 0.5, 0.5));
     layer.add(createButton(this.scene, w / 2, top + 435, 'Заново',
       this.actions.restart));
     layer.add(makeText(this.scene, w / 2, top + 496, 'Ещё одна прогулка по саду?', 18, COLORS.muted, 0.5, 0.5));
+  }
+
+  private progressSummary(): string {
+    const progress = this.getProgress();
+    return `Рекорд: ${progress.bestScore.toLocaleString('ru-RU')} · Общие очки: ${progress.totalPoints.toLocaleString('ru-RU')}`;
   }
 }
