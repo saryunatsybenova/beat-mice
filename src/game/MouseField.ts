@@ -16,6 +16,9 @@ export class MouseField {
   readonly holes: Hole[] = [];
   private ground?: Phaser.GameObjects.Container;
   private holeDecor?: Phaser.GameObjects.Container;
+  private phaseTint?: Phaser.GameObjects.Rectangle;
+  private gameStage: 1 | 2 = 1;
+  private shakeTween?: Phaser.Tweens.Tween;
   private layoutWidth = 960;
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
@@ -23,12 +26,34 @@ export class MouseField {
   constructor(private readonly scene: Phaser.Scene) {}
 
   resize(width: number, height: number): void {
+    this.cancelShake();
     this.layoutWidth = width;
     this.layoutHeight = height;
     this.ground?.destroy();
     this.holeDecor?.destroy();
     this.createGround();
     this.createHoles();
+    this.applyStageTint();
+  }
+
+  setStage(stage: 1 | 2): void {
+    this.gameStage = stage;
+    this.applyStageTint();
+  }
+
+  shake(durationMs: number, amplitude: number): void {
+    this.cancelShake();
+    const targets = [this.ground, this.holeDecor]
+      .filter((object): object is Phaser.GameObjects.Container => object !== undefined);
+    this.shakeTween = this.scene.tweens.add({
+      targets,
+      x: amplitude,
+      duration: durationMs / 6,
+      yoyo: true,
+      repeat: 2,
+      ease: 'Sine.inOut',
+      onComplete: () => { this.shakeTween = undefined; },
+    });
   }
 
   scheduleSpawns(intervalMs: number, spawn: () => void): void {
@@ -83,6 +108,7 @@ export class MouseField {
   }
 
   dispose(): void {
+    this.cancelShake();
     this.stopSpawns();
     for (const hole of this.holes) {
       hole.hideTimer?.remove();
@@ -95,6 +121,7 @@ export class MouseField {
     }
     this.ground?.destroy();
     this.holeDecor?.destroy();
+    this.phaseTint = undefined;
   }
 
   private createGround(): void {
@@ -102,6 +129,9 @@ export class MouseField {
     this.ground = this.scene.add.container(0, 0).setDepth(-10);
     this.ground.add(this.scene.add.rectangle(w / 2, h / 2, w * 3, h * 3, COLORS.ground));
     this.ground.add(panel(this.scene, 14, 128, w - 28, h - 150, 36, COLORS.grass));
+    this.phaseTint = this.scene.add.rectangle(w / 2, h - (h - 150) / 2, w - 28, h - 150,
+      COLORS.phase2Tint, this.gameStage === 2 ? BALANCE.phase2TintAlpha : 0);
+    this.ground.add(this.phaseTint);
     const grass = this.scene.add.graphics().lineStyle(2, COLORS.leaf, 0.3);
     for (let i = 0; i < 42; i++) {
       const x = 28 + ((i * 137) % (w - 56));
@@ -148,5 +178,16 @@ export class MouseField {
         } else this.holes.push({ x, y, mouse: null });
       }
     }
+  }
+
+  private applyStageTint(): void {
+    this.phaseTint?.setAlpha(this.gameStage === 2 ? BALANCE.phase2TintAlpha : 0);
+  }
+
+  private cancelShake(): void {
+    this.shakeTween?.stop();
+    this.shakeTween = undefined;
+    this.ground?.setX(0);
+    this.holeDecor?.setX(0);
   }
 }

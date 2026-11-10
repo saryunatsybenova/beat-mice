@@ -17,6 +17,7 @@ export class GameUI {
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
+  private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private layoutWidth = 960;
   private layoutHeight = 640;
 
@@ -34,6 +35,10 @@ export class GameUI {
       if (this.state.phase === 'paused') this.showPause();
       if (this.state.phase === 'gameover') this.showGameOver();
     }
+    if (this.phaseTransitionLayer) {
+      this.hidePhaseTransition();
+      if (this.state.isTransitioning) this.showPhaseTransition(false);
+    }
   }
 
   hideOverlay(): void { this.uiLayer?.destroy(); this.uiLayer = undefined; }
@@ -46,8 +51,45 @@ export class GameUI {
   }
 
   showPhase2(): void {
-    this.stageText.setText('ФАЗА 2 · Мышки быстрее!').setColor('#9a5b29');
-    this.scene.tweens.add({ targets: this.stageText, alpha: 0.65, duration: 200, yoyo: true, repeat: 2 });
+    this.stageText.setText('ФАЗА 2').setColor('#9a5b29');
+  }
+
+  showPhaseTransition(animate = true): void {
+    this.hidePhaseTransition();
+    const w = this.layoutWidth, h = this.layoutHeight;
+    const centerY = h / 2 + 28;
+    const layer = this.scene.add.container(0, 0).setDepth(5);
+    const wave = this.scene.add.graphics()
+      .lineStyle(5, COLORS.phase2Tint, 0.28)
+      .strokeCircle(w / 2, centerY, Math.min(42, w * 0.09));
+    const titleSize = Math.min(42, w * 0.09);
+    const subtitleSize = Math.min(27, w * 0.06);
+    const title = makeText(this.scene, w / 2, centerY - 18, 'ФАЗА 2', titleSize,
+      '#8a542f', 0.5, 0.5);
+    const subtitle = makeText(this.scene, w / 2, centerY + 28, 'Мыши наступают!',
+      subtitleSize, COLORS.ink, 0.5, 0.5);
+    layer.add([wave, title, subtitle]);
+    this.phaseTransitionLayer = layer;
+
+    if (!animate) return;
+    title.setAlpha(0);
+    subtitle.setAlpha(0);
+    this.scene.tweens.add({
+      targets: [title, subtitle], alpha: 1, duration: ANIMATION.phaseText,
+      hold: ANIMATION.phaseTextHold, yoyo: true,
+      ease: 'Sine.inOut',
+    });
+    wave.setScale(0.6).setAlpha(0.25);
+    this.scene.tweens.add({
+      targets: wave, scale: 2.2, alpha: 0, duration: ANIMATION.phaseWave, ease: 'Sine.out',
+    });
+  }
+
+  hidePhaseTransition(): void {
+    if (!this.phaseTransitionLayer) return;
+    this.scene.tweens.killTweensOf(this.phaseTransitionLayer.list);
+    this.phaseTransitionLayer.destroy();
+    this.phaseTransitionLayer = undefined;
   }
 
   showMiss(): void {
@@ -65,7 +107,11 @@ export class GameUI {
 
   }
 
-  dispose(): void { this.hideOverlay(); this.hud?.destroy(); }
+  dispose(): void {
+    this.hideOverlay();
+    this.hidePhaseTransition();
+    this.hud?.destroy();
+  }
 
   private createHud(): void {
     const w = this.layoutWidth;
@@ -94,11 +140,12 @@ export class GameUI {
       this.hud.add(heart);
     }
     this.stageText = makeText(this.scene, w / 2, 119,
-      this.state.gameStage === 1 ? 'ФАЗА 1' : 'ФАЗА 2 · Мышки быстрее!',
+      this.state.gameStage === 1 ? 'ФАЗА 1' : 'ФАЗА 2',
       18, this.state.gameStage === 1 ? COLORS.muted : '#9a5b29', 0.5, 0.5);
     this.hud.add(this.stageText);
     this.drawHearts();
-    this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'paused');
+    this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
+      this.state.phase === 'paused');
   }
 
   private drawHearts(): void {

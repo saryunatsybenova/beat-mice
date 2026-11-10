@@ -1,7 +1,11 @@
 // Длительность анимаций, мс
-export const ANIMATION = { appear: 150, hide: 120, feedback: 500, button: 90 };
+export const ANIMATION = {
+  appear: 150, hide: 120, feedback: 500, button: 90,
+  phaseText: 240, phaseTextHold: 420, phaseWave: 850,
+};
 export const COLORS = {
   ground: 0xc7dfa3, grass: 0xaccd84, leaf: 0x6c9858,
+  phase2Tint: 0xd78b56,
   holeRim: 0xb98a62, holeInner: 0x654635, soil: 0xd7aa7c,
   mouseBody: 0xc4b4a2, mouseEar: 0xe6b2b0, mouseEye: 0x42382f,
   cream: 0xfff8e9, ink: 0x493e32, muted: 0x7a705b,

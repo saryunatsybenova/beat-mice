@@ -13,6 +13,8 @@ export class GameScene extends Phaser.Scene {
   private field!: MouseField;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
+  private phaseTransitionTimer?: Phaser.Time.TimerEvent;
+  private phaseAudio?: AudioContext;
   private bestScoreAtGameStart = 0;
   private hadRecordAtGameStart = false;
   private showedRecordNotification = false;
@@ -22,6 +24,8 @@ export class GameScene extends Phaser.Scene {
   create(data: { startImmediately?: boolean } = {}): void {
     this.state.reset();
     this.time.paused = false;
+    this.phaseTransitionTimer?.remove();
+    this.phaseTransitionTimer = undefined;
     this.pausedTweens = [];
     this.field = new MouseField(this);
     this.ui = new GameUI(this, this.state, {
@@ -70,9 +74,10 @@ export class GameScene extends Phaser.Scene {
 
   private handlePauseKey(event: KeyboardEvent): void {
     if (event.repeat || (event.code !== 'KeyP' && event.code !== 'Escape')) return;
-    if (this.state.phase !== 'playing' && this.state.phase !== 'paused') return;
+    if (this.state.phase !== 'playing' && this.state.phase !== 'transition' &&
+      this.state.phase !== 'paused') return;
     event.preventDefault();
-    if (this.state.phase === 'playing') this.pauseGame();
+    if (this.state.phase === 'playing' || this.state.phase === 'transition') this.pauseGame();
     else this.resumeGame();
   }
 
@@ -82,6 +87,7 @@ export class GameScene extends Phaser.Scene {
     this.bestScoreAtGameStart = progress.bestScore;
     this.hadRecordAtGameStart = progress.hasBestScore;
     this.showedRecordNotification = false;
+    this.field.setStage(1);
     this.state.start(performance.now());
     this.ui.start();
     this.scheduleSpawns();
@@ -89,8 +95,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private pauseGame(): void {
-    if (!this.refreshTime()) return;
-    this.state.pause();
+    const phase = this.state.phase;
+    if (phase === 'playing' && !this.refreshTime()) return;
+    if (phase !== 'playing' && phase !== 'transition') return;
+    this.state.pause(performance.now());
     this.time.paused = true;
     this.pausedTweens = this.tweens.getTweens().filter(tween => !tween.isPaused());
     this.pausedTweens.forEach(tween => tween.pause());
@@ -126,8 +134,55 @@ export class GameScene extends Phaser.Scene {
     this.ui.feedback(hole.x, hole.y, `+${BALANCE.hitPoints}`, COLORS.buttonPressed);
     this.field.clearMouse(hole, true);
     if (enteredPhase2) {
+      this.startPhase2Transition();
+    }
+  }
+
+  private startPhase2Transition(): void {
+    if (!this.state.beginPhaseTransition(performance.now(), BALANCE.phaseTransitionMs)) return;
+    this.field.clearAll();
+    this.field.setStage(2);
+    this.field.shake(BALANCE.phaseShakeMs, BALANCE.phaseShakeAmplitude);
+    this.ui.showPhase2();
+    this.ui.showPhaseTransition();
+    this.playPhaseSignal();
+    this.phaseTransitionTimer = this.time.delayedCall(BALANCE.phaseTransitionMs, () => {
+      if (!this.state.finishPhaseTransition()) return;
+      this.phaseTransitionTimer = undefined;
+      this.ui.hidePhaseTransition();
       this.scheduleSpawns();
-      this.ui.showPhase2();
+      this.spawnMouse();
+    });
+  }
+
+  private playPhaseSignal(): void {
+    if (typeof AudioContext === 'undefined') return;
+    try {
+      const context = this.phaseAudio ?? new AudioContext();
+      this.phaseAudio = context;
+      const play = () => {
+        if (context.state === 'closed') return;
+        const now = context.currentTime;
+        const oscillator = context.createOscillator();
+        const volume = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(460, now);
+        oscillator.frequency.linearRampToValueAtTime(680, now + BALANCE.phaseSignalMs / 2_000);
+        volume.gain.setValueAtTime(0.0001, now);
+        volume.gain.exponentialRampToValueAtTime(0.12, now + 0.025);
+        volume.gain.exponentialRampToValueAtTime(0.0001, now + BALANCE.phaseSignalMs / 1_000);
+        oscillator.connect(volume);
+        volume.connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + BALANCE.phaseSignalMs / 1_000);
+      };
+      if (context.state === 'suspended') {
+        void context.resume().then(play).catch(() => undefined);
+      } else {
+        play();
+      }
+    } catch {
+      this.phaseAudio = undefined;
     }
   }
 
@@ -142,6 +197,9 @@ export class GameScene extends Phaser.Scene {
 
   private endGame(): void {
     if (this.state.phase !== 'playing') return;
+    this.phaseTransitionTimer?.remove();
+    this.phaseTransitionTimer = undefined;
+    this.ui.hidePhaseTransition();
     this.state.end();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();
@@ -149,6 +207,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.phaseTransitionTimer?.remove();
+    this.phaseTransitionTimer = undefined;
+    this.phaseAudio?.close().catch(() => undefined);
+    this.phaseAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
     this.input.keyboard?.off('keydown', this.handlePauseKey, this);
     this.scale.off('resize', this.layout, this);
