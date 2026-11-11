@@ -14,6 +14,8 @@ export class GameUI {
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
+  private slowMotionText!: Phaser.GameObjects.Text;
+  private slowMotionRemainingMs?: number;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
@@ -41,7 +43,9 @@ export class GameUI {
     }
     if (this.phaseTransitionLayer) {
       this.hidePhaseTransition();
-      if (this.state.isTransitioning) this.showPhaseTransition(false);
+      if (this.state.isTransitioning) {
+        this.showPhaseTransition(this.state.gameStage === 3 ? 3 : 2, false);
+      }
     }
   }
 
@@ -54,11 +58,20 @@ export class GameUI {
     if (newRecord) this.showNewRecord();
   }
 
-  showPhase2(): void {
-    this.stageText.setText('ФАЗА 2').setColor('#9a5b29');
+  showStage(stage: 2 | 3): void {
+    this.stageText.setText(`ФАЗА ${stage}`).setColor(stage === 2 ? '#9a5b29' : '#527d48');
   }
 
-  showPhaseTransition(animate = true): void {
+  updateSlowMotion(remainingMs?: number): void {
+    this.slowMotionRemainingMs = remainingMs;
+    if (!this.slowMotionText) return;
+    this.slowMotionText.setVisible(remainingMs !== undefined);
+    if (remainingMs !== undefined) {
+      this.slowMotionText.setText(`Замедление · ${(remainingMs / 1_000).toFixed(1)} с`);
+    }
+  }
+
+  showPhaseTransition(stage: 2 | 3, animate = true): void {
     this.hidePhaseTransition();
     const w = this.layoutWidth, h = this.layoutHeight;
     const centerY = h / 2 + 28;
@@ -68,19 +81,27 @@ export class GameUI {
       .strokeCircle(w / 2, centerY, Math.min(42, w * 0.09));
     const titleSize = Math.min(42, w * 0.09);
     const subtitleSize = Math.min(27, w * 0.06);
-    const title = makeText(this.scene, w / 2, centerY - 18, 'ФАЗА 2', titleSize,
-      '#8a542f', 0.5, 0.5);
-    const subtitle = makeText(this.scene, w / 2, centerY + 28, 'Мыши наступают!',
+    const title = makeText(this.scene, w / 2, centerY - (stage === 3 ? 36 : 18), `ФАЗА ${stage}`, titleSize,
+      stage === 2 ? '#8a542f' : '#527d48', 0.5, 0.5);
+    const subtitle = makeText(this.scene, w / 2, centerY + (stage === 3 ? 5 : 28),
+      stage === 2 ? 'Мыши наступают!' : 'Подкрепление в саду!',
       subtitleSize, '#fff8e9', 0.5, 0.5)
       .setStroke('#654635', 5);
+    const reminder = stage === 3
+      ? makeText(this.scene, w / 2, centerY + 43, 'Собирай сыр и сердечки',
+        Math.min(19, w * 0.042), '#fff8e9', 0.5, 0.5).setStroke('#654635', 4)
+      : undefined;
     layer.add([wave, title, subtitle]);
+    if (reminder) layer.add(reminder);
     this.phaseTransitionLayer = layer;
 
     if (!animate) return;
     title.setAlpha(0);
     subtitle.setAlpha(0);
+    reminder?.setAlpha(0);
     this.scene.tweens.add({
-      targets: [title, subtitle], alpha: 1, duration: ANIMATION.phaseText,
+      targets: [title, subtitle, reminder].filter((object): object is Phaser.GameObjects.Text =>
+        object !== undefined), alpha: 1, duration: ANIMATION.phaseText,
       hold: ANIMATION.phaseTextHold, yoyo: true,
       ease: 'Sine.inOut',
     });
@@ -109,6 +130,21 @@ export class GameUI {
       lostHeart.setScale(1);
       this.scene.tweens.add({ targets: lostHeart, scale: 1.5, duration: 110, yoyo: true });
     }
+  }
+
+  showLifeRestored(x: number, y: number, restored: boolean): void {
+    if (restored) {
+      this.drawHearts();
+      const restoredHeart = this.hearts[this.state.lives - 1];
+      if (restoredHeart) {
+        this.scene.tweens.killTweensOf(restoredHeart);
+        restoredHeart.setScale(1);
+        this.scene.tweens.add({ targets: restoredHeart, scale: 1.55, duration: 150, yoyo: true });
+      }
+      this.feedback(x, y, '+1 жизнь', COLORS.buttonPressed);
+      return;
+    }
+    this.feedback(x, y, 'Жизни полные', COLORS.buttonPressed);
   }
 
   showDecoyWarning(): void {
@@ -203,7 +239,8 @@ export class GameUI {
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
     this.timeText = makeText(this.scene, w - 16 - cardWidth / 2, 76,
       `${Math.ceil(this.state.remainingMs / 1000)} с`, 30, COLORS.ink, 0.5, 0.5);
-    this.hud.add([this.scoreText, this.bestScoreText, this.timeText]);
+    this.slowMotionText = makeText(this.scene, w / 2, 145, '', 17, '#3c7580', 0.5, 0.5);
+    this.hud.add([this.scoreText, this.bestScoreText, this.timeText, this.slowMotionText]);
     const livesCenter = 16 + 2 * (cardWidth + 8) + cardWidth / 2;
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
@@ -213,12 +250,14 @@ export class GameUI {
       this.hud.add(heart);
     }
     this.stageText = makeText(this.scene, w / 2, 119,
-      this.state.gameStage === 1 ? 'ФАЗА 1' : 'ФАЗА 2',
-      18, this.state.gameStage === 1 ? COLORS.muted : '#9a5b29', 0.5, 0.5);
+      `ФАЗА ${this.state.gameStage}`,
+      18, this.state.gameStage === 1 ? COLORS.muted :
+        this.state.gameStage === 2 ? '#9a5b29' : '#527d48', 0.5, 0.5);
     this.hud.add(this.stageText);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');
+    this.updateSlowMotion(this.slowMotionRemainingMs);
   }
 
   private drawHearts(): void {
@@ -261,11 +300,14 @@ export class GameUI {
     layer.add(makeMouse(this.scene, w / 2, top + 92).object);
     layer.add(makeText(this.scene, w / 2, top + 162, 'Бей мышей', 44, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 209, 'Маленькая игра в большом саду', 20, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 276,
-      'Нажимай на мышек,\nпока они не спрятались!', 24, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 365, this.progressSummary(), 24, COLORS.buttonPressed, 0.5, 0.5));
-    layer.add(createButton(this.scene, w / 2, top + 435, 'Играть', this.actions.start));
-    layer.add(makeText(this.scene, w / 2, top + 496, 'Мышь / касание · P или Esc — пауза', 17, COLORS.muted, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 260,
+      'Нажимай на мышек,\nпока они не спрятались!', 22, COLORS.ink, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 327,
+      'Фаза 3 — с 30 очков\nСыр замедляет мышей на 4 секунды\nСердечко возвращает одну жизнь',
+      17, COLORS.muted, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 405, this.progressSummary(), 19, COLORS.buttonPressed, 0.5, 0.5));
+    layer.add(createButton(this.scene, w / 2, top + 462, 'Играть', this.actions.start));
+    layer.add(makeText(this.scene, w / 2, top + 516, 'Мышь / касание · P или Esc — пауза', 16, COLORS.muted, 0.5, 0.5));
   }
 
   showPause(): void {

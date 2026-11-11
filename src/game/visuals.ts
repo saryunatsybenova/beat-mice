@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { COLORS } from './theme';
 
 export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
+export type UsefulItemType = 'cheese' | 'heart';
 
 export interface MouseAppearance {
   object: Phaser.GameObjects.Container;
@@ -39,6 +40,35 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   if (type === 'golden') addStar(mouse, scene);
   const helmet = type === 'helmet' ? addHelmet(mouse, scene) : undefined;
   return { object: mouse, helmet };
+}
+
+export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
+  type: UsefulItemType): Phaser.GameObjects.Container {
+  const item = scene.add.container(x, y).setDepth(2);
+  if (type === 'cheese') {
+    const wedge = scene.add.graphics().fillStyle(0xf2c84b).lineStyle(3, 0xb77b2a);
+    const points = [
+      new Phaser.Math.Vector2(-34, 20),
+      new Phaser.Math.Vector2(-28, -18),
+      new Phaser.Math.Vector2(34, 8),
+      new Phaser.Math.Vector2(30, 21),
+    ];
+    wedge.fillPoints(points, true).strokePoints(points, true);
+    item.add(wedge);
+    item.add([
+      scene.add.circle(-14, 4, 5, 0xc98e32),
+      scene.add.circle(8, 10, 4, 0xc98e32),
+      scene.add.circle(3, -8, 3, 0xc98e32),
+    ]);
+  } else {
+    const heart = scene.add.graphics().fillStyle(0xe35469).lineStyle(3, 0x9f3447);
+    heart.fillCircle(-11, -8, 13).fillCircle(11, -8, 13);
+    heart.fillTriangle(-23, -5, 23, -5, 0, 22);
+    heart.lineBetween(-23, -7, 0, 22).lineBetween(23, -7, 0, 22);
+    item.add(heart);
+    item.add(scene.add.circle(-11, -9, 3, 0xffc7cf).setAlpha(0.9));
+  }
+  return item;
 }
 
 function addFlower(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): void {

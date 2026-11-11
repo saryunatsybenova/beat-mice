@@ -5,7 +5,7 @@ import { GameUI } from './ui/GameUI';
 import { BALANCE } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
-import type { MouseType } from './visuals';
+import type { MouseType, UsefulItemType } from './visuals';
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
@@ -15,6 +15,8 @@ export class GameScene extends Phaser.Scene {
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
+  private usefulItemTimer?: Phaser.Time.TimerEvent;
+  private slowMotionTimer?: Phaser.Time.TimerEvent;
   private phaseAudio?: AudioContext;
   private bestScoreAtGameStart = 0;
   private hadRecordAtGameStart = false;
@@ -44,7 +46,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(): void {
-    if (this.state.phase === 'playing') this.refreshTime();
+    if (this.state.phase === 'playing') {
+      this.refreshTime();
+      this.ui.updateSlowMotion(this.slowMotionTimer?.getRemaining());
+    }
   }
 
   private refreshTime(): boolean {
@@ -69,6 +74,11 @@ export class GameScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (!this.refreshTime()) return;
     const point = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    const item = this.field.findItem(point.x, point.y);
+    if (item) {
+      this.collectUsefulItem(item);
+      return;
+    }
     const hole = this.field.findMouse(point.x, point.y);
     if (hole) this.hitMouse(hole);
   }
@@ -89,6 +99,7 @@ export class GameScene extends Phaser.Scene {
     this.hadRecordAtGameStart = progress.hasBestScore;
     this.showedRecordNotification = false;
     this.field.setStage(1);
+    this.field.setSlowMotion(false);
     this.state.start(performance.now());
     this.ui.start();
     this.scheduleSpawns();
@@ -122,14 +133,13 @@ export class GameScene extends Phaser.Scene {
   private spawnMouse(): void {
     if (!this.refreshTime()) return;
     const type = this.chooseMouseType();
-    const visibleMs = type === 'helmet'
-      ? this.state.mouseVisibleMs * BALANCE.helmetVisibleTimeMultiplier
-      : this.state.mouseVisibleMs;
+    const visibleMs = this.state.mouseVisibleMs *
+      (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
     this.field.spawnMouse(visibleMs, hole => this.missMouse(hole), type);
   }
 
   private chooseMouseType(): MouseType {
-    if (this.state.gameStage !== 2) return 'normal';
+    if (this.state.gameStage < 2) return 'normal';
 
     const roll = Math.random();
     const { normal, decoy, golden, helmet } = BALANCE.phase2MouseChances;
@@ -170,7 +180,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private rewardMouse(hole: Hole, points: number, label: string): void {
-    const enteredPhase2 = this.state.hit(points);
+    const enteredPhase = this.state.hit(points);
     this.progress.recordScore(this.state.score);
     const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&
       this.state.score > this.bestScoreAtGameStart;
@@ -178,18 +188,18 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateScore(newRecord);
     this.ui.feedback(hole.x, hole.y, label, COLORS.buttonPressed);
     this.field.clearMouse(hole, true);
-    if (enteredPhase2) {
-      this.startPhase2Transition();
+    if (enteredPhase !== null) {
+      this.startPhaseTransition(enteredPhase);
     }
   }
 
-  private startPhase2Transition(): void {
+  private startPhaseTransition(stage: 2 | 3): void {
     if (!this.state.beginPhaseTransition(performance.now(), BALANCE.phaseTransitionMs)) return;
     this.field.clearAll();
-    this.field.setStage(2);
+    this.field.setStage(stage);
     this.field.shake(BALANCE.phaseShakeMs, BALANCE.phaseShakeAmplitude);
-    this.ui.showPhase2();
-    this.ui.showPhaseTransition();
+    this.ui.showStage(stage);
+    this.ui.showPhaseTransition(stage);
     this.playPhaseSignal();
     this.phaseTransitionTimer = this.time.delayedCall(BALANCE.phaseTransitionMs, () => {
       if (!this.state.finishPhaseTransition()) return;
@@ -197,11 +207,63 @@ export class GameScene extends Phaser.Scene {
       this.ui.hidePhaseTransition();
       this.scheduleSpawns();
       this.spawnMouse();
+      if (stage === 3) this.scheduleUsefulItem(BALANCE.phase3FirstItemDelayMs, true);
     });
   }
 
+  private scheduleUsefulItem(delayMs: number, guaranteedCheese = false): void {
+    this.usefulItemTimer?.remove();
+    this.usefulItemTimer = undefined;
+    if (this.state.gameStage !== 3 || this.state.phase !== 'playing' || this.slowMotionTimer) return;
+    this.usefulItemTimer = this.time.delayedCall(delayMs, () => {
+      this.usefulItemTimer = undefined;
+      if (this.state.phase !== 'playing' || this.state.gameStage !== 3 || this.slowMotionTimer) return;
+      const type = guaranteedCheese ? 'cheese' : this.chooseUsefulItemType();
+      const spawned = this.field.spawnUsefulItem(type, BALANCE.usefulItemVisibleMs, () => {
+        this.scheduleUsefulItem(this.randomUsefulItemDelay());
+      });
+      if (!spawned) this.scheduleUsefulItem(BALANCE.usefulItemRetryMs, guaranteedCheese);
+    });
+  }
+
+  private chooseUsefulItemType(): UsefulItemType {
+    if (this.state.lives >= BALANCE.startLives) return 'cheese';
+    const { cheese, heart } = BALANCE.usefulItemChances;
+    return Math.random() * (cheese + heart) < cheese ? 'cheese' : 'heart';
+  }
+
+  private randomUsefulItemDelay(): number {
+    return BALANCE.usefulItemDelayMinMs + Math.random() *
+      (BALANCE.usefulItemDelayMaxMs - BALANCE.usefulItemDelayMinMs);
+  }
+
+  private collectUsefulItem(hole: Hole): void {
+    const type = hole.itemType;
+    if (!type) return;
+    this.field.clearItem(hole);
+    if (type === 'cheese') {
+      this.usefulItemTimer?.remove();
+      this.usefulItemTimer = undefined;
+      this.field.setSlowMotion(true);
+      this.ui.updateSlowMotion(BALANCE.cheeseSlowDurationMs);
+      this.slowMotionTimer?.remove();
+      this.slowMotionTimer = this.time.delayedCall(BALANCE.cheeseSlowDurationMs, () => {
+        this.slowMotionTimer = undefined;
+        this.field.setSlowMotion(false);
+        this.ui.updateSlowMotion(undefined);
+        this.scheduleUsefulItem(this.randomUsefulItemDelay());
+      });
+      this.ui.feedback(hole.x, hole.y, 'Замедление!', COLORS.buttonPressed);
+      return;
+    }
+
+    const restored = this.state.restoreLife();
+    this.ui.showLifeRestored(hole.x, hole.y, restored);
+    this.scheduleUsefulItem(this.randomUsefulItemDelay());
+  }
+
   private playPhaseSignal(): void {
-    if (typeof AudioContext === 'undefined') return;
+    if (!BALANCE.phaseSignalSoundEnabled || typeof AudioContext === 'undefined') return;
     try {
       const context = this.phaseAudio ?? new AudioContext();
       this.phaseAudio = context;
@@ -244,6 +306,12 @@ export class GameScene extends Phaser.Scene {
     if (this.state.phase !== 'playing') return;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
+    this.usefulItemTimer?.remove();
+    this.usefulItemTimer = undefined;
+    this.slowMotionTimer?.remove();
+    this.slowMotionTimer = undefined;
+    this.field.setSlowMotion(false);
+    this.ui.updateSlowMotion(undefined);
     this.ui.hidePhaseTransition();
     this.state.end();
     this.progress.addCompletedGame(this.state.score);
@@ -254,6 +322,10 @@ export class GameScene extends Phaser.Scene {
   private cleanup(): void {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
+    this.usefulItemTimer?.remove();
+    this.usefulItemTimer = undefined;
+    this.slowMotionTimer?.remove();
+    this.slowMotionTimer = undefined;
     this.phaseAudio?.close().catch(() => undefined);
     this.phaseAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
