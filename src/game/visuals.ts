@@ -1,17 +1,25 @@
 import Phaser from 'phaser';
 import { COLORS } from './theme';
 
-export type MouseType = 'normal' | 'decoy';
+export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
+
+export interface MouseAppearance {
+  object: Phaser.GameObjects.Container;
+  helmet?: Phaser.GameObjects.Container;
+}
 
 export function makeMouse(scene: Phaser.Scene, x: number, y: number,
-  type: MouseType = 'normal'): Phaser.GameObjects.Container {
+  type: MouseType = 'normal'): MouseAppearance {
   const mouse = scene.add.container(x, y);
+  const isGolden = type === 'golden';
+  const bodyColor = isGolden ? 0xe9bd4c : COLORS.mouseBody;
+  const earColor = isGolden ? 0xffe18a : COLORS.mouseEar;
   mouse.add(scene.add.ellipse(0, 18, 90, 27, COLORS.holeInner).setAlpha(0.18));
-  mouse.add(scene.add.circle(-29, -30, 22, COLORS.mouseBody).setStrokeStyle(2, 0xa59585));
-  mouse.add(scene.add.circle(29, -30, 22, COLORS.mouseBody).setStrokeStyle(2, 0xa59585));
-  mouse.add(scene.add.circle(-29, -30, 14, COLORS.mouseEar));
-  mouse.add(scene.add.circle(29, -30, 14, COLORS.mouseEar));
-  mouse.add(scene.add.ellipse(0, -4, 80, 76, COLORS.mouseBody).setStrokeStyle(2, 0xa59585));
+  mouse.add(scene.add.circle(-29, -30, 22, bodyColor).setStrokeStyle(2, 0xa59585));
+  mouse.add(scene.add.circle(29, -30, 22, bodyColor).setStrokeStyle(2, 0xa59585));
+  mouse.add(scene.add.circle(-29, -30, 14, earColor));
+  mouse.add(scene.add.circle(29, -30, 14, earColor));
+  mouse.add(scene.add.ellipse(0, -4, 80, 76, bodyColor).setStrokeStyle(2, 0xa59585));
   mouse.add(scene.add.ellipse(0, 12, 52, 32, COLORS.cream));
   mouse.add(scene.add.circle(-14, -12, 6, COLORS.mouseEye));
   mouse.add(scene.add.circle(14, -12, 6, COLORS.mouseEye));
@@ -28,7 +36,9 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   mouse.add(scene.add.ellipse(-24, 28, 20, 12, COLORS.cream));
   mouse.add(scene.add.ellipse(24, 28, 20, 12, COLORS.cream));
   if (type === 'decoy') addFlower(mouse, scene);
-  return mouse;
+  if (type === 'golden') addStar(mouse, scene);
+  const helmet = type === 'helmet' ? addHelmet(mouse, scene) : undefined;
+  return { object: mouse, helmet };
 }
 
 function addFlower(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): void {
@@ -49,4 +59,18 @@ function addFlower(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): vo
     ).setStrokeStyle(2, 0xfff8e9));
   }
   mouse.add(scene.add.circle(centerX, centerY, 8, 0xe84f79).setStrokeStyle(2, 0xfff8e9));
+}
+
+function addStar(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): void {
+  mouse.add(scene.add.star(44, -68, 5, 8, 18, 0xffdd45)
+    .setStrokeStyle(3, 0xfff8e9));
+}
+
+function addHelmet(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const helmet = scene.add.container(0, -53);
+  helmet.add(scene.add.ellipse(0, 0, 74, 30, 0x3479b7).setStrokeStyle(3, 0xeaf5ff));
+  helmet.add(scene.add.rectangle(0, 8, 86, 7, 0x235887).setStrokeStyle(2, 0xeaf5ff));
+  helmet.add(scene.add.rectangle(-25, 4, 5, 14, 0xeaf5ff));
+  mouse.add(helmet);
+  return helmet;
 }

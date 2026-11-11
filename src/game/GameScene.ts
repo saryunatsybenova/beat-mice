@@ -121,9 +121,23 @@ export class GameScene extends Phaser.Scene {
 
   private spawnMouse(): void {
     if (!this.refreshTime()) return;
-    const type: MouseType = this.state.gameStage === 2 && !this.field.hasDecoyMouse &&
-      Math.random() < BALANCE.falseMouseChance ? 'decoy' : 'normal';
-    this.field.spawnMouse(this.state.mouseVisibleMs, hole => this.missMouse(hole), type);
+    const type = this.chooseMouseType();
+    const visibleMs = type === 'helmet'
+      ? this.state.mouseVisibleMs * BALANCE.helmetVisibleTimeMultiplier
+      : this.state.mouseVisibleMs;
+    this.field.spawnMouse(visibleMs, hole => this.missMouse(hole), type);
+  }
+
+  private chooseMouseType(): MouseType {
+    if (this.state.gameStage !== 2) return 'normal';
+
+    const roll = Math.random();
+    const { normal, decoy, golden, helmet } = BALANCE.phase2MouseChances;
+    if (roll < normal) return 'normal';
+    if (roll < normal + decoy) return 'decoy';
+    if (roll < normal + decoy + golden) return 'golden';
+    if (roll < normal + decoy + golden + helmet) return 'helmet';
+    return 'normal';
   }
 
   private hitMouse(hole: Hole): void {
@@ -138,13 +152,31 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const enteredPhase2 = this.state.hit();
+    if (hole.mouseType === 'helmet' && !hole.helmetRemoved) {
+      this.field.removeHelmet(hole);
+      this.ui.showHelmetHint(hole.x, hole.y);
+      return;
+    }
+
+    if (hole.mouseType === 'golden') {
+      this.ui.showGoldenHit(hole.x, hole.y);
+      this.rewardMouse(hole, BALANCE.goldenHitPoints, `+${BALANCE.goldenHitPoints}`);
+      return;
+    }
+
+    const points = hole.mouseType === 'helmet'
+      ? BALANCE.helmetHitPoints : BALANCE.hitPoints;
+    this.rewardMouse(hole, points, `+${points}`);
+  }
+
+  private rewardMouse(hole: Hole, points: number, label: string): void {
+    const enteredPhase2 = this.state.hit(points);
     this.progress.recordScore(this.state.score);
     const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&
       this.state.score > this.bestScoreAtGameStart;
     if (newRecord) this.showedRecordNotification = true;
     this.ui.updateScore(newRecord);
-    this.ui.feedback(hole.x, hole.y, `+${BALANCE.hitPoints}`, COLORS.buttonPressed);
+    this.ui.feedback(hole.x, hole.y, label, COLORS.buttonPressed);
     this.field.clearMouse(hole, true);
     if (enteredPhase2) {
       this.startPhase2Transition();

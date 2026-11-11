@@ -76,9 +76,9 @@ export class GameState {
   }
 
   /** Возвращает true только при первом переходе в фазу 2. */
-  hit(): boolean {
+  hit(points: number = BALANCE.hitPoints): boolean {
     if (this.phase !== 'playing') return false;
-    this.score += BALANCE.hitPoints;
+    this.score += points;
     if (this.gameStage === 1 && this.score >= BALANCE.phase2Score) {
       this.gameStage = 2;
       return true;

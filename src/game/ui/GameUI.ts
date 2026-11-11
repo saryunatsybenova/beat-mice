@@ -19,6 +19,7 @@ export class GameUI {
   private uiLayer?: Phaser.GameObjects.Container;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
+  private readonly transientEffects = new Set<Phaser.GameObjects.GameObject>();
   private layoutWidth = 960;
   private layoutHeight = 640;
 
@@ -27,6 +28,7 @@ export class GameUI {
 
   resize(width: number, height: number): void {
     this.hideDecoyWarning();
+    this.clearTransientEffects();
     this.layoutWidth = width;
     this.layoutHeight = height;
     this.hud?.destroy();
@@ -114,22 +116,57 @@ export class GameUI {
     const width = Math.min(440, this.layoutWidth - 32);
     const warning = this.scene.add.container(this.layoutWidth / 2, 166).setDepth(22);
     this.decoyWarning = warning;
+    this.transientEffects.add(warning);
     warning.add(panel(this.scene, -width / 2, -24, width, 48, 14, COLORS.cream));
     warning.add(makeText(this.scene, 0, 0, 'Не трогай мышку с цветком!',
       Math.min(18, width / 24), COLORS.buttonPressed, 0.5, 0.5));
     this.scene.tweens.add({
       targets: warning, alpha: 0, delay: 500, duration: 500,
-      onComplete: () => {
-        warning.destroy();
-        if (this.decoyWarning === warning) this.decoyWarning = undefined;
-      },
+      onComplete: () => this.destroyTransient(warning),
     });
+  }
+
+  showHelmetHint(x: number, y: number): void {
+    const width = Math.min(280, this.layoutWidth - 32);
+    const hint = this.scene.add.container(x, Math.max(148, y - 82)).setDepth(22);
+    hint.add(panel(this.scene, -width / 2, -22, width, 44, 13, COLORS.cream));
+    hint.add(makeText(this.scene, 0, 0, 'Ещё одно попадание!',
+      Math.min(17, width / 17), COLORS.buttonPressed, 0.5, 0.5));
+    this.transientEffects.add(hint);
+    this.scene.tweens.add({
+      targets: hint, alpha: 0, delay: 500, duration: 450,
+      onComplete: () => this.destroyTransient(hint),
+    });
+  }
+
+  showGoldenHit(x: number, y: number): void {
+    for (let i = 0; i < 7; i++) {
+      const angle = i * Math.PI * 2 / 7;
+      const spark = this.scene.add.star(x, y, 4, 4, 11,
+        i % 2 === 0 ? 0xffd447 : 0xfff4a8).setDepth(16);
+      this.transientEffects.add(spark);
+      this.scene.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * 38,
+        y: y + Math.sin(angle) * 38,
+        alpha: 0,
+        scale: 0.2,
+        duration: 360,
+        onComplete: () => this.destroyTransient(spark),
+      });
+    }
+  }
+
+  private destroyTransient(effect: Phaser.GameObjects.GameObject): void {
+    this.transientEffects.delete(effect);
+    effect.destroy();
+    if (this.decoyWarning === effect) this.decoyWarning = undefined;
   }
 
   private hideDecoyWarning(): void {
     if (!this.decoyWarning) return;
     this.scene.tweens.killTweensOf(this.decoyWarning);
-    this.decoyWarning.destroy();
+    this.destroyTransient(this.decoyWarning);
     this.decoyWarning = undefined;
   }
 
@@ -137,7 +174,16 @@ export class GameUI {
     this.hideOverlay();
     this.hidePhaseTransition();
     this.hideDecoyWarning();
+    this.clearTransientEffects();
     this.hud?.destroy();
+  }
+
+  private clearTransientEffects(): void {
+    for (const effect of this.transientEffects) {
+      this.scene.tweens.killTweensOf(effect);
+      effect.destroy();
+    }
+    this.transientEffects.clear();
   }
 
   private createHud(): void {
@@ -184,16 +230,18 @@ export class GameUI {
 
   feedback(x: number, y: number, label: string, color: number): void {
     const text = makeText(this.scene, x, y - 32, label, 32, color, 0.5, 0.5).setDepth(15);
+    this.transientEffects.add(text);
     this.scene.tweens.add({ targets: text, y: y - 85, alpha: 0, duration: ANIMATION.feedback,
-      ease: 'Cubic.out', onComplete: () => text.destroy() });
+      ease: 'Cubic.out', onComplete: () => this.destroyTransient(text) });
   }
 
   private showNewRecord(): void {
     const text = makeText(this.scene, 20, 148, 'Новый рекорд!', 20, COLORS.buttonPressed, 0, 0.5)
       .setDepth(20);
+    this.transientEffects.add(text);
     this.scene.tweens.add({
       targets: text, alpha: 0, duration: 1_500, delay: 500,
-      onComplete: () => text.destroy(),
+      onComplete: () => this.destroyTransient(text),
     });
   }
 
@@ -210,7 +258,7 @@ export class GameUI {
 
   showMenu(): void {
     const { w, top, layer } = this.createOverlay();
-    layer.add(makeMouse(this.scene, w / 2, top + 92));
+    layer.add(makeMouse(this.scene, w / 2, top + 92).object);
     layer.add(makeText(this.scene, w / 2, top + 162, 'Бей мышей', 44, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 209, 'Маленькая игра в большом саду', 20, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 276,
@@ -232,8 +280,10 @@ export class GameUI {
   }
 
   showGameOver(): void {
+    this.hideDecoyWarning();
+    this.clearTransientEffects();
     const { w, top, layer } = this.createOverlay();
-    layer.add(makeMouse(this.scene, w / 2, top + 92));
+    layer.add(makeMouse(this.scene, w / 2, top + 92).object);
     layer.add(makeText(this.scene, w / 2, top + 170, 'Игра окончена', 38, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 226,
       this.state.lives === 0 ? 'Мышки оказались проворнее!' : 'Время вышло — хороший улов!',
