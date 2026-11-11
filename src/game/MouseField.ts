@@ -2,12 +2,13 @@ import Phaser from 'phaser';
 import { BALANCE } from './settings';
 import { COLORS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
 import { panel } from './ui/widgets';
-import { makeMouse } from './visuals';
+import { makeMouse, type MouseType } from './visuals';
 
 export interface Hole {
   x: number;
   y: number;
   mouse: Phaser.GameObjects.Container | null;
+  mouseType: MouseType | null;
   hideTimer?: Phaser.Time.TimerEvent;
 }
 
@@ -19,6 +20,7 @@ export class MouseField {
   private phaseTint?: Phaser.GameObjects.Rectangle;
   private gameStage: 1 | 2 = 1;
   private shakeTween?: Phaser.Tweens.Tween;
+  private decoyFadingOut = false;
   private layoutWidth = 960;
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
@@ -66,30 +68,42 @@ export class MouseField {
     this.spawnTimer = undefined;
   }
 
-  spawnMouse(visibleMs: number, miss: (hole: Hole) => void): void {
+  get hasDecoyMouse(): boolean {
+    return this.decoyFadingOut || this.holes.some(hole => hole.mouseType === 'decoy');
+  }
+
+  spawnMouse(visibleMs: number, miss: (hole: Hole) => void, type: MouseType = 'normal'): void {
+    if (type === 'decoy' && this.hasDecoyMouse) type = 'normal';
     const freeHoles = this.holes.filter(hole => hole.mouse === null);
     if (freeHoles.length === 0) return;
     const hole = Phaser.Utils.Array.GetRandom(freeHoles);
-    const mouse = makeMouse(this.scene, hole.x, hole.y);
+    const mouse = makeMouse(this.scene, hole.x, hole.y, type);
     mouse.setScale(0.2).setAlpha(0);
     this.scene.tweens.add({ targets: mouse, scale: 1, alpha: 1, duration: ANIMATION.appear, ease: 'Back.out' });
     hole.mouse = mouse;
+    hole.mouseType = type;
     hole.hideTimer = this.scene.time.delayedCall(visibleMs, () => {
-      if (hole.mouse === mouse) miss(hole);
+      if (hole.mouse !== mouse) return;
+      if (type === 'decoy') this.clearMouse(hole);
+      else miss(hole);
     });
   }
 
   findMouse(x: number, y: number): Hole | undefined {
     return this.holes.find(hole => hole.mouse !== null &&
-      Phaser.Math.Distance.Between(x, y, hole.x, hole.y) <= BALANCE.mouseHitRadius);
+      Phaser.Math.Distance.Between(x, y, hole.x, hole.y) <=
+      (hole.mouseType === 'decoy' ? BALANCE.falseMouseHitRadius : BALANCE.mouseHitRadius));
   }
 
   clearMouse(hole: Hole, hit = false): void {
     hole.hideTimer?.remove();
     hole.hideTimer = undefined;
     const mouse = hole.mouse;
+    const wasDecoy = hole.mouseType === 'decoy';
     hole.mouse = null; // сразу помечаем нору свободной — повторное попадание не засчитается
+    hole.mouseType = null;
     if (!mouse) return;
+    if (wasDecoy) this.decoyFadingOut = true;
     this.scene.tweens.killTweensOf(mouse);
 
     this.scene.tweens.add({
@@ -98,7 +112,10 @@ export class MouseField {
       alpha: 0,
       angle: hit ? 12 : 0,
       duration: ANIMATION.hide,
-      onComplete: () => mouse.destroy(),
+      onComplete: () => {
+        mouse.destroy();
+        if (wasDecoy) this.decoyFadingOut = false;
+      },
     });
   }
 
@@ -118,7 +135,9 @@ export class MouseField {
       }
       hole.hideTimer = undefined;
       hole.mouse = null;
+      hole.mouseType = null;
     }
+    this.decoyFadingOut = false;
     this.ground?.destroy();
     this.holeDecor?.destroy();
     this.phaseTint = undefined;
@@ -175,7 +194,7 @@ export class MouseField {
           const hole = this.holes[index];
           hole.x = x; hole.y = y;
           if (hole.mouse) hole.mouse.setPosition(x, y);
-        } else this.holes.push({ x, y, mouse: null });
+        } else this.holes.push({ x, y, mouse: null, mouseType: null });
       }
     }
   }

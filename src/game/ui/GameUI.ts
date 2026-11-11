@@ -18,6 +18,7 @@ export class GameUI {
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
+  private decoyWarning?: Phaser.GameObjects.Container;
   private layoutWidth = 960;
   private layoutHeight = 640;
 
@@ -25,6 +26,7 @@ export class GameUI {
     private readonly actions: UIActions, private readonly getProgress: () => Readonly<PlayerProgress>) {}
 
   resize(width: number, height: number): void {
+    this.hideDecoyWarning();
     this.layoutWidth = width;
     this.layoutHeight = height;
     this.hud?.destroy();
@@ -67,7 +69,8 @@ export class GameUI {
     const title = makeText(this.scene, w / 2, centerY - 18, 'ФАЗА 2', titleSize,
       '#8a542f', 0.5, 0.5);
     const subtitle = makeText(this.scene, w / 2, centerY + 28, 'Мыши наступают!',
-      subtitleSize, COLORS.ink, 0.5, 0.5);
+      subtitleSize, '#fff8e9', 0.5, 0.5)
+      .setStroke('#654635', 5);
     layer.add([wave, title, subtitle]);
     this.phaseTransitionLayer = layer;
 
@@ -104,12 +107,36 @@ export class GameUI {
       lostHeart.setScale(1);
       this.scene.tweens.add({ targets: lostHeart, scale: 1.5, duration: 110, yoyo: true });
     }
+  }
 
+  showDecoyWarning(): void {
+    this.hideDecoyWarning();
+    const width = Math.min(440, this.layoutWidth - 32);
+    const warning = this.scene.add.container(this.layoutWidth / 2, 166).setDepth(22);
+    this.decoyWarning = warning;
+    warning.add(panel(this.scene, -width / 2, -24, width, 48, 14, COLORS.cream));
+    warning.add(makeText(this.scene, 0, 0, 'Не трогай мышку с цветком!',
+      Math.min(18, width / 24), COLORS.buttonPressed, 0.5, 0.5));
+    this.scene.tweens.add({
+      targets: warning, alpha: 0, delay: 500, duration: 500,
+      onComplete: () => {
+        warning.destroy();
+        if (this.decoyWarning === warning) this.decoyWarning = undefined;
+      },
+    });
+  }
+
+  private hideDecoyWarning(): void {
+    if (!this.decoyWarning) return;
+    this.scene.tweens.killTweensOf(this.decoyWarning);
+    this.decoyWarning.destroy();
+    this.decoyWarning = undefined;
   }
 
   dispose(): void {
     this.hideOverlay();
     this.hidePhaseTransition();
+    this.hideDecoyWarning();
     this.hud?.destroy();
   }
 

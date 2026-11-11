@@ -5,6 +5,7 @@ import { GameUI } from './ui/GameUI';
 import { BALANCE } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
+import type { MouseType } from './visuals';
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
@@ -120,11 +121,23 @@ export class GameScene extends Phaser.Scene {
 
   private spawnMouse(): void {
     if (!this.refreshTime()) return;
-    this.field.spawnMouse(this.state.mouseVisibleMs, hole => this.missMouse(hole));
+    const type: MouseType = this.state.gameStage === 2 && !this.field.hasDecoyMouse &&
+      Math.random() < BALANCE.falseMouseChance ? 'decoy' : 'normal';
+    this.field.spawnMouse(this.state.mouseVisibleMs, hole => this.missMouse(hole), type);
   }
 
   private hitMouse(hole: Hole): void {
     if (!this.refreshTime() || hole.mouse === null) return;
+    if (hole.mouseType === 'decoy') {
+      this.state.miss();
+      this.ui.showMiss();
+      this.ui.showDecoyWarning();
+      this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
+      this.field.clearMouse(hole, true);
+      if (this.state.lives <= 0) this.endGame();
+      return;
+    }
+
     const enteredPhase2 = this.state.hit();
     this.progress.recordScore(this.state.score);
     const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&

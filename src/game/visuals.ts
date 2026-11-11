@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { COLORS } from './theme';
 
-export function makeMouse(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Container {
+export type MouseType = 'normal' | 'decoy';
+
+export function makeMouse(scene: Phaser.Scene, x: number, y: number,
+  type: MouseType = 'normal'): Phaser.GameObjects.Container {
   const mouse = scene.add.container(x, y);
   mouse.add(scene.add.ellipse(0, 18, 90, 27, COLORS.holeInner).setAlpha(0.18));
   mouse.add(scene.add.circle(-29, -30, 22, COLORS.mouseBody).setStrokeStyle(2, 0xa59585));
@@ -24,5 +27,26 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number): Phaser.Gam
   mouse.add(whiskers);
   mouse.add(scene.add.ellipse(-24, 28, 20, 12, COLORS.cream));
   mouse.add(scene.add.ellipse(24, 28, 20, 12, COLORS.cream));
+  if (type === 'decoy') addFlower(mouse, scene);
   return mouse;
+}
+
+function addFlower(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): void {
+  const stem = scene.add.graphics().lineStyle(5, 0x4e9b46, 1)
+    .lineBetween(30, -35, 44, -62);
+  stem.fillStyle(0x64b84f, 1)
+    .fillEllipse(35, -45, 16, 8);
+  mouse.add(stem);
+
+  const centerX = 46, centerY = -69;
+  for (let petal = 0; petal < 6; petal++) {
+    const angle = petal * Math.PI / 3;
+    mouse.add(scene.add.circle(
+      centerX + Math.cos(angle) * 11,
+      centerY + Math.sin(angle) * 11,
+      11,
+      petal % 2 === 0 ? 0xffc928 : 0xff8a35,
+    ).setStrokeStyle(2, 0xfff8e9));
+  }
+  mouse.add(scene.add.circle(centerX, centerY, 8, 0xe84f79).setStrokeStyle(2, 0xfff8e9));
 }

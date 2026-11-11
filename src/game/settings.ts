@@ -8,6 +8,8 @@ export const BALANCE = {
   gridRows: 3,
   mouseHitRadius: 58,
   phase2Score: 10,
+  falseMouseChance: 0.2,
+  falseMouseHitRadius: 118,
   phaseTransitionMs: 1_200,
   phaseShakeMs: 300,
   phaseShakeAmplitude: 4,
