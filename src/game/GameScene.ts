@@ -86,7 +86,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const hole = this.field.findMouse(point.x, point.y);
-    if (hole) this.hitMouse(hole);
+    if (hole) {
+      this.hitMouse(hole);
+    } else if (this.field.findEmptyHole(point.x, point.y) && this.state.breakStreak()) {
+      this.ui.showStreakNotice(false);
+    }
   }
 
   private handlePauseKey(event: KeyboardEvent): void {
@@ -158,12 +162,13 @@ export class GameScene extends Phaser.Scene {
   private hitMouse(hole: Hole): void {
     if (!this.refreshTime() || hole.mouse === null) return;
     if (hole.mouseType === 'decoy') {
-      this.state.miss();
+      const brokeStreak = this.state.miss();
       this.ui.showMiss();
       this.ui.showDecoyWarning();
       this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
       this.field.clearMouse(hole, true);
       if (this.state.lives <= 0) this.endGame();
+      if (brokeStreak) this.ui.showStreakNotice(false);
       return;
     }
 
@@ -175,27 +180,28 @@ export class GameScene extends Phaser.Scene {
 
     if (hole.mouseType === 'golden') {
       this.ui.showGoldenHit(hole.x, hole.y);
-      this.rewardMouse(hole, BALANCE.goldenHitPoints, `+${BALANCE.goldenHitPoints}`);
+      this.rewardMouse(hole, BALANCE.goldenHitPoints);
       return;
     }
 
     const points = hole.mouseType === 'helmet'
       ? BALANCE.helmetHitPoints : BALANCE.hitPoints;
-    this.rewardMouse(hole, points, `+${points}`);
+    this.rewardMouse(hole, points);
   }
 
-  private rewardMouse(hole: Hole, points: number, label: string): void {
-    const enteredPhase = this.state.hit(points);
+  private rewardMouse(hole: Hole, basePoints: number): void {
+    const reward = this.state.hit(basePoints);
+    if (!reward) return;
     this.progress.recordScore(this.state.score);
     const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&
       this.state.score > this.bestScoreAtGameStart;
     if (newRecord) this.showedRecordNotification = true;
     this.ui.updateScore(newRecord);
-    this.ui.feedback(hole.x, hole.y, label, COLORS.buttonPressed);
+    this.ui.feedback(hole.x, hole.y, `+${reward.points}`, COLORS.buttonPressed);
     this.field.clearMouse(hole, true);
-    if (enteredPhase !== null) {
-      this.startPhaseTransition(enteredPhase);
-    }
+    if (reward.enteredPhase) this.startPhaseTransition(reward.enteredPhase);
+    if (this.state.streak === BALANCE.streakThreshold) this.ui.showStreakNotice(true);
+    else this.ui.updateStreak();
   }
 
   private startPhaseTransition(stage: 2 | 3): void {
@@ -210,6 +216,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.state.finishPhaseTransition()) return;
       this.phaseTransitionTimer = undefined;
       this.ui.hidePhaseTransition();
+      this.ui.updateStreak();
       this.scheduleSpawns();
       this.spawnMouse();
       if (stage === 3) this.scheduleUsefulItem(BALANCE.phase3FirstItemDelayMs, true);
@@ -326,11 +333,12 @@ export class GameScene extends Phaser.Scene {
 
   private missMouse(hole: Hole): void {
     if (!this.refreshTime() || hole.mouse === null) return;
-    this.state.miss();
+    const brokeStreak = this.state.miss();
     this.ui.showMiss();
     this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
     this.field.clearMouse(hole);
     if (this.state.lives <= 0) this.endGame();
+    if (brokeStreak) this.ui.showStreakNotice(false);
   }
 
   private endGame(): void {

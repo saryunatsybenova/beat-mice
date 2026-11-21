@@ -15,12 +15,14 @@ export class GameUI {
   private bestScoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
   private holeBlockText!: Phaser.GameObjects.Text;
+  private streakText!: Phaser.GameObjects.Text;
   private holeBlockRemainingMs?: number;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
+  private streakNotice?: Phaser.GameObjects.Text;
   private readonly transientEffects = new Set<Phaser.GameObjects.GameObject>();
   private layoutWidth = 960;
   private layoutHeight = 640;
@@ -60,6 +62,40 @@ export class GameUI {
 
   showStage(stage: 2 | 3): void {
     this.stageText.setText(`ФАЗА ${stage}`).setColor(stage === 2 ? '#9a5b29' : '#527d48');
+  }
+
+  updateStreak(): void {
+    const { gameStage, streak, isTransitioning } = this.state;
+    this.streakText.setVisible(gameStage === 3 || (gameStage === 2 && !isTransitioning));
+    const active = this.state.scoreMultiplier > 1;
+    const multiplier = `×${BALANCE.streakMultiplier}`;
+    const detail = active ? multiplier : `До ${multiplier}: ещё ${BALANCE.streakThreshold - streak}`;
+    this.streakText.setText(`Серия: ${streak} · ${detail}`)
+      .setColor(active ? '#386135' : '#493e32')
+      .setFontStyle(active ? 'bold' : 'normal');
+  }
+
+  showStreakNotice(activated: boolean): void {
+    this.updateStreak();
+    if (this.streakNotice) {
+      this.scene.tweens.killTweensOf(this.streakNotice);
+      this.destroyTransient(this.streakNotice);
+    }
+    const label = activated ? `Серия! Очки ×${BALANCE.streakMultiplier}` : 'Серия прервана';
+    const color = activated ? '#386135' : COLORS.holeInner;
+    const resultOverlay = this.state.phase === 'gameover' ? this.uiLayer : undefined;
+    const notice = resultOverlay
+      ? makeText(this.scene, this.layoutWidth / 2, this.layoutHeight / 2 + 253,
+        label, 16, color, 0.5, 0.5)
+      : makeText(this.scene, 16, 119, label, 16, color, 0, 0.5).setDepth(12);
+    notice.setFontStyle('bold');
+    resultOverlay?.add(notice);
+    this.streakNotice = notice;
+    this.transientEffects.add(notice);
+    this.scene.tweens.add({
+      targets: notice, alpha: 0, delay: 650, duration: 350,
+      onComplete: () => this.destroyTransient(notice),
+    });
   }
 
   updateHoleBlock(remainingMs?: number): void {
@@ -196,6 +232,7 @@ export class GameUI {
     this.transientEffects.delete(effect);
     effect.destroy();
     if (this.decoyWarning === effect) this.decoyWarning = undefined;
+    if (this.streakNotice === effect) this.streakNotice = undefined;
   }
 
   private hideDecoyWarning(): void {
@@ -216,7 +253,7 @@ export class GameUI {
   private clearTransientEffects(): void {
     for (const effect of this.transientEffects) {
       this.scene.tweens.killTweensOf(effect);
-      effect.destroy();
+      this.destroyTransient(effect);
     }
     this.transientEffects.clear();
   }
@@ -252,11 +289,13 @@ export class GameUI {
       `ФАЗА ${this.state.gameStage}`,
       18, this.state.gameStage === 1 ? COLORS.muted :
         this.state.gameStage === 2 ? '#9a5b29' : '#527d48', 0.5, 0.5);
-    this.hud.add(this.stageText);
+    this.streakText = makeText(this.scene, w - 16, 119, '', 16, COLORS.ink, 1, 0.5);
+    this.hud.add([this.stageText, this.streakText]);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');
     this.updateHoleBlock(this.holeBlockRemainingMs);
+    this.updateStreak();
   }
 
   private drawHearts(): void {
@@ -352,10 +391,11 @@ export class GameUI {
       21, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 280, 'СЧЁТ ЗА ПАРТИЮ', 18, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 332, String(this.state.score), 58, COLORS.buttonPressed, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 386, this.progressSummary(), 18, COLORS.muted, 0.5, 0.5));
-    layer.add(createButton(this.scene, w / 2, top + 435, 'Заново',
+    layer.add(makeText(this.scene, w / 2, top + 378, `Максимальная серия: ${this.state.bestStreak}`,
+      20, COLORS.ink, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 413, this.progressSummary(), 18, COLORS.muted, 0.5, 0.5));
+    layer.add(createButton(this.scene, w / 2, top + 468, 'Заново',
       this.actions.restart));
-    layer.add(makeText(this.scene, w / 2, top + 496, 'Ещё одна прогулка по саду?', 18, COLORS.muted, 0.5, 0.5));
   }
 
   private progressSummary(): string {

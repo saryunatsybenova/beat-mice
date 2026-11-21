@@ -9,6 +9,8 @@ export const BALANCE = {
   mouseHitRadius: 58,
   phase2Score: 10,
   phase3Score: 30,
+  streakThreshold: 5,
+  streakMultiplier: 2,
   falseMouseHitRadius: 118,
   usefulItemHitRadius: 48,
   phase2MouseChances: {

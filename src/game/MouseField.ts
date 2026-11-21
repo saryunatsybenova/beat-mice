@@ -17,7 +17,12 @@ export interface Hole {
   hideTimer?: Phaser.Time.TimerEvent;
   itemTimer?: Phaser.Time.TimerEvent;
   cover?: Phaser.GameObjects.Container;
+  fadingObjects: Set<Phaser.GameObjects.Container>;
 }
+
+const HOLE_SOIL_Y = 13;
+const HOLE_SOIL_WIDTH = HOLE_RADIUS * 2 + 8;
+const HOLE_SOIL_HEIGHT = 66;
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
 export class MouseField {
@@ -167,9 +172,13 @@ export class MouseField {
       item.destroy();
       return;
     }
+    hole.fadingObjects.add(item);
     this.scene.tweens.add({
       targets: item, scale: 0.6, alpha: 0, duration: ANIMATION.hide,
-      onComplete: () => item.destroy(),
+      onComplete: () => {
+        hole.fadingObjects.delete(item);
+        item.destroy();
+      },
     });
   }
 
@@ -180,6 +189,12 @@ export class MouseField {
         hole.mouseType === 'golden' ? BALANCE.goldenMouseHitRadius :
           hole.mouseType === 'helmet' && !hole.helmetRemoved ? BALANCE.helmetHitRadius :
             BALANCE.mouseHitRadius));
+  }
+
+  findEmptyHole(x: number, y: number): Hole | undefined {
+    return this.holes.find(hole => this.isFree(hole) && hole.fadingObjects.size === 0 &&
+      ((x - hole.x) / (HOLE_SOIL_WIDTH / 2)) ** 2 +
+      ((y - hole.y - HOLE_SOIL_Y) / (HOLE_SOIL_HEIGHT / 2)) ** 2 <= 1);
   }
 
   removeHelmet(hole: Hole): void {
@@ -216,6 +231,7 @@ export class MouseField {
     if (mouseType !== null && mouseType !== 'normal') this.fadingSpecialTypes.add(mouseType);
     this.scene.tweens.killTweensOf(mouse);
 
+    hole.fadingObjects.add(mouse);
     this.scene.tweens.add({
       targets: mouse,
       scale: hit ? 1.18 : 0.2,
@@ -223,6 +239,7 @@ export class MouseField {
       angle: hit ? 12 : 0,
       duration: ANIMATION.hide,
       onComplete: () => {
+        hole.fadingObjects.delete(mouse);
         mouse.destroy();
         if (mouseType !== null) this.fadingSpecialTypes.delete(mouseType);
       },
@@ -261,6 +278,7 @@ export class MouseField {
       hole.helmet = null;
       hole.helmetTween = undefined;
       hole.helmetRemoved = false;
+      hole.fadingObjects.clear();
     }
     this.fadingSpecialTypes.clear();
     this.ground?.destroy();
@@ -310,20 +328,21 @@ export class MouseField {
         const x = startX + col * spacingX, y = startY + row * spacingY;
         this.holeDecor.add([
           this.scene.add.ellipse(x, y + 22, HOLE_RADIUS * 2 + 16, 65, COLORS.leaf).setAlpha(0.25),
-          this.scene.add.ellipse(x, y + 13, HOLE_RADIUS * 2 + 8, 66, COLORS.soil),
+          this.scene.add.ellipse(x, y + HOLE_SOIL_Y, HOLE_SOIL_WIDTH, HOLE_SOIL_HEIGHT, COLORS.soil),
           this.scene.add.ellipse(x, y + 9, HOLE_RADIUS * 2, 58, COLORS.holeRim),
           this.scene.add.ellipse(x, y + 7, HOLE_RADIUS * 2 - 12, 43, COLORS.holeInner),
         ]);
         const index = row * BALANCE.gridCols + col;
         if (this.holes[index]) {
           const hole = this.holes[index];
+          for (const object of hole.fadingObjects) object.setPosition(x, y + object.y - hole.y);
           hole.x = x; hole.y = y;
           if (hole.mouse) hole.mouse.setPosition(x, y);
           if (hole.item) hole.item.setPosition(x, y - 8);
           if (hole.cover) hole.cover.setPosition(x, y);
         } else this.holes.push({
           x, y, mouse: null, mouseType: null, item: null, itemType: null,
-          helmet: null, helmetRemoved: false,
+          helmet: null, helmetRemoved: false, fadingObjects: new Set(),
         });
       }
     }
