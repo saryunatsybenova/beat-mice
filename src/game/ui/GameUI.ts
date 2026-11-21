@@ -13,13 +13,13 @@ export class GameUI {
   private stageText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
-  private timeText!: Phaser.GameObjects.Text;
   private holeBlockText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
   private holeBlockRemainingMs?: number;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
+  private confirmingAbandon = false;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
   private streakNotice?: Phaser.GameObjects.Text;
@@ -38,9 +38,13 @@ export class GameUI {
     this.hud?.destroy();
     this.createHud();
     if (this.uiLayer?.active) {
+      const confirmingAbandon = this.confirmingAbandon;
       this.hideOverlay();
       if (this.state.phase === 'menu') this.showMenu();
-      if (this.state.phase === 'paused') this.showPause();
+      if (this.state.phase === 'paused') {
+        if (confirmingAbandon) this.showAbandonConfirmation();
+        else this.showPause();
+      }
       if (this.state.phase === 'gameover') this.showGameOver();
     }
     if (this.phaseTransitionLayer) {
@@ -51,9 +55,12 @@ export class GameUI {
     }
   }
 
-  hideOverlay(): void { this.uiLayer?.destroy(); this.uiLayer = undefined; }
+  hideOverlay(): void {
+    this.uiLayer?.destroy();
+    this.uiLayer = undefined;
+    this.confirmingAbandon = false;
+  }
   start(): void { this.hideOverlay(); this.hud.setVisible(true); }
-  updateTime(): void { this.timeText.setText(`${Math.ceil(this.state.remainingMs / 1000)} с`); }
   updateScore(newRecord: boolean): void {
     this.scoreText.setText(String(this.state.score));
     this.bestScoreText.setText(this.getProgress().bestScore.toLocaleString('ru-RU'));
@@ -260,24 +267,22 @@ export class GameUI {
 
   private createHud(): void {
     const w = this.layoutWidth;
-    const cardWidth = (w - 48) / 4;
+    const labels = ['СЧЁТ', 'РЕКОРД', 'ЖИЗНИ'];
+    const cardWidth = (w - 48) / labels.length;
+    const cardCenter = (i: number) => 16 + i * (cardWidth + 8) + cardWidth / 2;
     this.hud = this.scene.add.container(0, 0).setDepth(10);
     this.hearts = [];
-    const labels = ['СЧЁТ', 'РЕКОРД', 'ЖИЗНИ', 'ВРЕМЯ'];
-    for (let i = 0; i < 4; i++) {
-      const x = 16 + i * (cardWidth + 8);
-      this.hud.add(panel(this.scene, x, 18, cardWidth, 91, 20));
-      this.hud.add(makeText(this.scene, x + cardWidth / 2, 40, labels[i], 14, COLORS.muted, 0.5, 0.5));
+    for (const [i, label] of labels.entries()) {
+      this.hud.add(panel(this.scene, cardCenter(i) - cardWidth / 2, 18, cardWidth, 91, 20));
+      this.hud.add(makeText(this.scene, cardCenter(i), 40, label, 14, COLORS.muted, 0.5, 0.5));
     }
-    this.scoreText = makeText(this.scene, 16 + cardWidth / 2, 76, String(this.state.score), 32, COLORS.ink, 0.5, 0.5);
+    this.scoreText = makeText(this.scene, cardCenter(0), 76, String(this.state.score), 32, COLORS.ink, 0.5, 0.5);
     const progress = this.getProgress();
-    this.bestScoreText = makeText(this.scene, 24 + cardWidth * 1.5, 76,
+    this.bestScoreText = makeText(this.scene, cardCenter(1), 76,
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
-    this.timeText = makeText(this.scene, w - 16 - cardWidth / 2, 76,
-      `${Math.ceil(this.state.remainingMs / 1000)} с`, 30, COLORS.ink, 0.5, 0.5);
     this.holeBlockText = makeText(this.scene, w / 2, 145, '', 17, COLORS.holeInner, 0.5, 0.5);
-    this.hud.add([this.scoreText, this.bestScoreText, this.timeText, this.holeBlockText]);
-    const livesCenter = 16 + 2 * (cardWidth + 8) + cardWidth / 2;
+    this.hud.add([this.scoreText, this.bestScoreText, this.holeBlockText]);
+    const livesCenter = cardCenter(2);
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
       const heart = this.scene.add.graphics()
@@ -372,12 +377,24 @@ export class GameUI {
     const { w, top, layer } = this.createOverlay();
     layer.add(makeText(this.scene, w / 2, top + 155, 'ПАУЗА', 44, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 235,
-      'Мышки отдыхают.\nВремя, жизни и счёт сохранены.', 23, COLORS.muted, 0.5, 0.5));
+      'Мышки отдыхают.\nСчёт, жизни и серия сохранены.', 23, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 325,
       `Счёт: ${this.state.score} · Жизни: ${this.state.lives}`, 24, COLORS.ink, 0.5, 0.5));
     layer.add(createButton(this.scene, w / 2, top + 379, 'Продолжить', this.actions.resume));
-    layer.add(createButton(this.scene, w / 2, top + 457, 'В меню', this.actions.menu));
+    layer.add(createButton(this.scene, w / 2, top + 457, 'В меню', () => this.showAbandonConfirmation()));
     layer.add(makeText(this.scene, w / 2, top + 511, 'P или Esc — продолжить', 18, COLORS.muted, 0.5, 0.5));
+  }
+
+  private showAbandonConfirmation(): void {
+    this.hideOverlay();
+    this.confirmingAbandon = true;
+    const { w, top, layer } = this.createOverlay(360, 520);
+    layer.add(makeText(this.scene, w / 2, top + 64, 'Прервать партию?', 35, COLORS.ink, 0.5, 0.5));
+    layer.add(makeText(this.scene, w / 2, top + 132,
+      'Очки этой партии не будут добавлены к общей сумме', 22, COLORS.muted, 0.5, 0.5)
+      .setWordWrapWidth(Math.min(390, w - 88)));
+    layer.add(createButton(this.scene, w / 2, top + 217, 'Прервать партию', this.actions.menu));
+    layer.add(createButton(this.scene, w / 2, top + 299, 'Отмена', this.actions.resume));
   }
 
   showGameOver(): void {
@@ -386,8 +403,7 @@ export class GameUI {
     const { w, top, layer } = this.createOverlay();
     layer.add(makeMouse(this.scene, w / 2, top + 92).object);
     layer.add(makeText(this.scene, w / 2, top + 170, 'Игра окончена', 38, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 226,
-      this.state.lives === 0 ? 'Мышки оказались проворнее!' : 'Время вышло — хороший улов!',
+    layer.add(makeText(this.scene, w / 2, top + 226, 'Мышки оказались проворнее!',
       21, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 280, 'СЧЁТ ЗА ПАРТИЮ', 18, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 332, String(this.state.score), 58, COLORS.buttonPressed, 0.5, 0.5));

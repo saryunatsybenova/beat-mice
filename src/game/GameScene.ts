@@ -52,17 +52,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(): void {
-    if (this.state.phase === 'playing' && this.refreshTime() && this.holeBlockTimer) {
+    if (this.state.phase === 'playing' && this.holeBlockTimer) {
       this.ui.updateHoleBlock(this.holeBlockTimer.getRemaining());
     }
-  }
-
-  private refreshTime(): boolean {
-    if (this.state.phase !== 'playing') return false;
-    const alive = this.state.updateTime(performance.now());
-    this.ui.updateTime();
-    if (!alive) this.endGame();
-    return alive;
   }
 
   private layout(): void {
@@ -77,7 +69,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
-    if (!this.refreshTime()) return;
+    if (this.state.phase !== 'playing') return;
     const point = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     if (this.field.isBlockedAt(point.x, point.y)) return;
     const item = this.field.findItem(point.x, point.y);
@@ -109,7 +101,7 @@ export class GameScene extends Phaser.Scene {
     this.hadRecordAtGameStart = progress.hasBestScore;
     this.showedRecordNotification = false;
     this.field.setStage(1);
-    this.state.start(performance.now());
+    this.state.start();
     this.ui.start();
     this.scheduleSpawns();
     this.spawnMouse();
@@ -117,9 +109,8 @@ export class GameScene extends Phaser.Scene {
 
   private pauseGame(): void {
     const phase = this.state.phase;
-    if (phase === 'playing' && !this.refreshTime()) return;
     if (phase !== 'playing' && phase !== 'transition') return;
-    this.state.pause(performance.now());
+    this.state.pause();
     this.time.paused = true;
     this.pausedTweens = this.tweens.getTweens().filter(tween => !tween.isPaused());
     this.pausedTweens.forEach(tween => tween.pause());
@@ -128,7 +119,7 @@ export class GameScene extends Phaser.Scene {
 
   private resumeGame(): void {
     if (this.state.phase !== 'paused') return;
-    this.state.resume(performance.now());
+    this.state.resume();
     this.ui.hideOverlay();
     this.time.paused = false;
     this.pausedTweens.forEach(tween => tween.resume());
@@ -140,7 +131,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnMouse(): void {
-    if (!this.refreshTime()) return;
+    if (this.state.phase !== 'playing') return;
     const type = this.chooseMouseType();
     const visibleMs = this.state.mouseVisibleMs *
       (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
@@ -160,14 +151,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private hitMouse(hole: Hole): void {
-    if (!this.refreshTime() || hole.mouse === null) return;
+    if (this.state.phase !== 'playing' || hole.mouse === null) return;
     if (hole.mouseType === 'decoy') {
       const brokeStreak = this.state.miss();
       this.ui.showMiss();
       this.ui.showDecoyWarning();
       this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
       this.field.clearMouse(hole, true);
-      if (this.state.lives <= 0) this.endGame();
+      if (this.state.lives === 0) this.endGame();
       if (brokeStreak) this.ui.showStreakNotice(false);
       return;
     }
@@ -205,7 +196,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startPhaseTransition(stage: 2 | 3): void {
-    if (!this.state.beginPhaseTransition(performance.now(), BALANCE.phaseTransitionMs)) return;
+    if (!this.state.beginPhaseTransition()) return;
     this.field.clearAll();
     this.field.setStage(stage);
     this.field.shake(BALANCE.phaseShakeMs, BALANCE.phaseShakeAmplitude);
@@ -230,7 +221,7 @@ export class GameScene extends Phaser.Scene {
       this.holeBlockTimer || this.holeBlockPending) return;
 
     const offerItem = () => {
-      if (!this.refreshTime()) return;
+      if (this.state.phase !== 'playing') return;
       const type = guaranteedCheese ? 'cheese' : this.chooseUsefulItemType();
       const spawned = this.field.spawnUsefulItem(type, BALANCE.usefulItemVisibleMs, () => {
         this.scheduleUsefulItem(this.randomUsefulItemDelay());
@@ -332,17 +323,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private missMouse(hole: Hole): void {
-    if (!this.refreshTime() || hole.mouse === null) return;
+    if (this.state.phase !== 'playing' || hole.mouse === null) return;
     const brokeStreak = this.state.miss();
     this.ui.showMiss();
     this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
     this.field.clearMouse(hole);
-    if (this.state.lives <= 0) this.endGame();
+    if (this.state.lives === 0) this.endGame();
     if (brokeStreak) this.ui.showStreakNotice(false);
   }
 
   private endGame(): void {
-    if (this.state.phase !== 'playing') return;
+    if (!this.state.end()) return;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.usefulItemTimer?.remove();
@@ -350,7 +341,6 @@ export class GameScene extends Phaser.Scene {
     this.cancelHoleBlock();
     this.ui.updateHoleBlock(undefined);
     this.ui.hidePhaseTransition();
-    this.state.end();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();
     this.ui.showGameOver();

@@ -10,10 +10,7 @@ export class GameState {
   streak = 0;
   bestStreak = 0;
   lives: number = BALANCE.startLives;
-  remainingMs: number = BALANCE.durationMs;
-  private deadline = 0;
   private pausedPhase: 'playing' | 'transition' = 'playing';
-  private pausedAt = 0;
 
   get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 3 ? 2 : this.gameStage].spawnIntervalMs; }
   get mouseVisibleMs(): number { return BALANCE.phases[this.gameStage === 3 ? 2 : this.gameStage].mouseVisibleMs; }
@@ -28,46 +25,27 @@ export class GameState {
     this.streak = 0;
     this.bestStreak = 0;
     this.lives = BALANCE.startLives;
-    this.remainingMs = BALANCE.durationMs;
-    this.deadline = 0;
     this.pausedPhase = 'playing';
-    this.pausedAt = 0;
   }
 
-  start(now: number): void {
+  start(): void {
     if (this.phase !== 'menu') return;
     this.phase = 'playing';
-    this.deadline = now + this.remainingMs;
   }
 
-  updateTime(now: number): boolean {
-    if (this.phase !== 'playing') return false;
-    this.remainingMs = Math.max(0, this.deadline - now);
-    return this.remainingMs > 0;
-  }
-
-  pause(now: number): void {
+  pause(): void {
     if (this.phase !== 'playing' && this.phase !== 'transition') return;
     this.pausedPhase = this.phase;
-    if (this.phase === 'playing') this.updateTime(now);
-    else this.pausedAt = now;
     this.phase = 'paused';
   }
 
-  resume(now: number): void {
+  resume(): void {
     if (this.phase !== 'paused') return;
-    if (this.pausedPhase === 'transition') {
-      this.deadline += now - this.pausedAt;
-      this.phase = 'transition';
-    } else {
-      this.deadline = now + this.remainingMs;
-      this.phase = 'playing';
-    }
+    this.phase = this.pausedPhase;
   }
 
-  beginPhaseTransition(now: number, durationMs: number): boolean {
+  beginPhaseTransition(): boolean {
     if (this.phase !== 'playing' || this.gameStage === 1) return false;
-    this.deadline = Math.max(this.deadline, now) + durationMs;
     this.phase = 'transition';
     return true;
   }
@@ -119,7 +97,9 @@ export class GameState {
     return true;
   }
 
-  end(): void {
-    if (this.phase === 'playing') this.phase = 'gameover';
+  end(): boolean {
+    if (this.phase !== 'playing' || this.lives !== 0) return false;
+    this.phase = 'gameover';
+    return true;
   }
 }
