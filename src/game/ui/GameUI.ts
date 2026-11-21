@@ -6,7 +6,7 @@ import { makeMouse } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
 
-interface UIActions { start: () => void; resume: () => void; restart: () => void; }
+interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; }
 
 /** HUD, всплывающие подсказки и экраны. Не изменяет игровые правила. */
 export class GameUI {
@@ -14,8 +14,8 @@ export class GameUI {
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
-  private slowMotionText!: Phaser.GameObjects.Text;
-  private slowMotionRemainingMs?: number;
+  private holeBlockText!: Phaser.GameObjects.Text;
+  private holeBlockRemainingMs?: number;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
@@ -62,12 +62,11 @@ export class GameUI {
     this.stageText.setText(`ФАЗА ${stage}`).setColor(stage === 2 ? '#9a5b29' : '#527d48');
   }
 
-  updateSlowMotion(remainingMs?: number): void {
-    this.slowMotionRemainingMs = remainingMs;
-    if (!this.slowMotionText) return;
-    this.slowMotionText.setVisible(remainingMs !== undefined);
+  updateHoleBlock(remainingMs?: number): void {
+    this.holeBlockRemainingMs = remainingMs;
+    this.holeBlockText.setVisible(remainingMs !== undefined);
     if (remainingMs !== undefined) {
-      this.slowMotionText.setText(`Замедление · ${(remainingMs / 1_000).toFixed(1)} с`);
+      this.holeBlockText.setText(`Нора закрыта · ${(remainingMs / 1_000).toFixed(1)} с`);
     }
   }
 
@@ -239,8 +238,8 @@ export class GameUI {
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
     this.timeText = makeText(this.scene, w - 16 - cardWidth / 2, 76,
       `${Math.ceil(this.state.remainingMs / 1000)} с`, 30, COLORS.ink, 0.5, 0.5);
-    this.slowMotionText = makeText(this.scene, w / 2, 145, '', 17, '#3c7580', 0.5, 0.5);
-    this.hud.add([this.scoreText, this.bestScoreText, this.timeText, this.slowMotionText]);
+    this.holeBlockText = makeText(this.scene, w / 2, 145, '', 17, COLORS.holeInner, 0.5, 0.5);
+    this.hud.add([this.scoreText, this.bestScoreText, this.timeText, this.holeBlockText]);
     const livesCenter = 16 + 2 * (cardWidth + 8) + cardWidth / 2;
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
@@ -257,7 +256,7 @@ export class GameUI {
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');
-    this.updateSlowMotion(this.slowMotionRemainingMs);
+    this.updateHoleBlock(this.holeBlockRemainingMs);
   }
 
   private drawHearts(): void {
@@ -284,30 +283,50 @@ export class GameUI {
     });
   }
 
-  private createOverlay(): { w: number; top: number; layer: Phaser.GameObjects.Container } {
+  private createOverlay(cardHeight = 530, maxCardWidth = 560):
+    { w: number; top: number; layer: Phaser.GameObjects.Container } {
     const w = this.layoutWidth, h = this.layoutHeight;
-    const cardWidth = Math.min(560, w - 32), top = (h - 530) / 2;
-    const fit = Math.min(1, (h - 24) / 530);
+    const cardWidth = Math.min(maxCardWidth, w - 32), top = (h - cardHeight) / 2;
+    const fit = Math.min(1, (h - 24) / cardHeight);
     this.uiLayer = this.scene.add.container(w * (1 - fit) / 2, h * (1 - fit) / 2)
       .setScale(fit).setDepth(30);
     this.uiLayer.add(this.scene.add.rectangle(w / 2, h / 2, w * 3, h * 3, COLORS.ground, 0.87));
-    this.uiLayer.add(panel(this.scene, (w - cardWidth) / 2, top, cardWidth, 530, 32));
+    this.uiLayer.add(panel(this.scene, (w - cardWidth) / 2, top, cardWidth, cardHeight, 32));
     return { w, top, layer: this.uiLayer };
   }
 
   showMenu(): void {
-    const { w, top, layer } = this.createOverlay();
-    layer.add(makeMouse(this.scene, w / 2, top + 92).object);
-    layer.add(makeText(this.scene, w / 2, top + 162, 'Бей мышей', 44, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 209, 'Маленькая игра в большом саду', 20, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 260,
-      'Нажимай на мышек,\nпока они не спрятались!', 22, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 327,
-      'Фаза 3 — с 30 очков\nСыр замедляет мышей на 4 секунды\nСердечко возвращает одну жизнь',
-      17, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, w / 2, top + 405, this.progressSummary(), 19, COLORS.buttonPressed, 0.5, 0.5));
-    layer.add(createButton(this.scene, w / 2, top + 462, 'Играть', this.actions.start));
-    layer.add(makeText(this.scene, w / 2, top + 516, 'Мышь / касание · P или Esc — пауза', 16, COLORS.muted, 0.5, 0.5));
+    const { w, top, layer } = this.createOverlay(460, 460);
+    const center = w / 2;
+    layer.add(this.scene.add.circle(center, top + 78, 53, COLORS.ground, 0.48)
+      .setStrokeStyle(1, COLORS.leaf, 0.35));
+    layer.add(this.scene.add.ellipse(center - 67, top + 82, 9, 20, COLORS.leaf, 0.55).setAngle(-42));
+    layer.add(this.scene.add.ellipse(center + 67, top + 82, 9, 20, COLORS.leaf, 0.55).setAngle(42));
+    layer.add(makeMouse(this.scene, center, top + 87).object.setScale(0.92));
+    layer.add(makeText(this.scene, center, top + 164, 'Бей мышей', 46, COLORS.ink, 0.5, 0.5)
+      .setFontStyle('bold'));
+    layer.add(makeText(this.scene, center, top + 222,
+      'Нажимай на мышек,\nпока они не спрятались!', 21, COLORS.muted, 0.5, 0.5));
+
+    const progress = this.getProgress();
+    const stats = this.scene.add.graphics()
+      .fillStyle(COLORS.ground, 0.36).fillRoundedRect(center - 145, top + 268, 290, 62, 18);
+    stats.lineStyle(1, COLORS.leaf, 0.35).lineBetween(center, top + 279, center, top + 319);
+    layer.add(stats);
+    const entries = [
+      { x: center - 72, label: 'Рекорд', value: progress.bestScore },
+      { x: center + 72, label: 'Общие очки', value: progress.totalPoints },
+    ];
+    for (const { x, label, value } of entries) {
+      layer.add(makeText(this.scene, x, top + 286, label, 14, COLORS.muted, 0.5, 0.5));
+      const score = makeText(this.scene, x, top + 309, value.toLocaleString('ru-RU'),
+        24, COLORS.buttonPressed, 0.5, 0.5).setFontStyle('bold');
+      layer.add(score.setScale(Math.min(1, 128 / score.width)));
+    }
+
+    layer.add(createButton(this.scene, center, top + 379, 'Играть', this.actions.start));
+    layer.add(makeText(this.scene, center, top + 437, 'Мышь / касание · P или Esc — пауза',
+      16, COLORS.muted, 0.5, 0.5));
   }
 
   showPause(): void {
@@ -317,8 +336,9 @@ export class GameUI {
       'Мышки отдыхают.\nВремя, жизни и счёт сохранены.', 23, COLORS.muted, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 325,
       `Счёт: ${this.state.score} · Жизни: ${this.state.lives}`, 24, COLORS.ink, 0.5, 0.5));
-    layer.add(createButton(this.scene, w / 2, top + 435, 'Продолжить', this.actions.resume));
-    layer.add(makeText(this.scene, w / 2, top + 496, 'P или Esc — продолжить', 18, COLORS.muted, 0.5, 0.5));
+    layer.add(createButton(this.scene, w / 2, top + 379, 'Продолжить', this.actions.resume));
+    layer.add(createButton(this.scene, w / 2, top + 457, 'В меню', this.actions.menu));
+    layer.add(makeText(this.scene, w / 2, top + 511, 'P или Esc — продолжить', 18, COLORS.muted, 0.5, 0.5));
   }
 
   showGameOver(): void {

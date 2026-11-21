@@ -16,6 +16,7 @@ export interface Hole {
   helmetRemoved: boolean;
   hideTimer?: Phaser.Time.TimerEvent;
   itemTimer?: Phaser.Time.TimerEvent;
+  cover?: Phaser.GameObjects.Container;
 }
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
@@ -30,10 +31,8 @@ export class MouseField {
   private layoutWidth = 960;
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
-  private slowMotionFactor = 1;
-  private slowTint?: Phaser.GameObjects.Rectangle;
 
-  constructor(private readonly scene: Phaser.Scene) {}
+  constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void) {}
 
   resize(width: number, height: number): void {
     this.cancelShake();
@@ -69,18 +68,40 @@ export class MouseField {
   scheduleSpawns(intervalMs: number, spawn: () => void): void {
     this.stopSpawns();
     this.spawnTimer = this.scene.time.addEvent({ delay: intervalMs, loop: true, callback: spawn });
-    this.applySlowMotion(this.spawnTimer);
   }
 
-  setSlowMotion(enabled: boolean): void {
-    if ((this.slowMotionFactor > 1) === enabled) return;
-    const factor = BALANCE.cheeseSlowTimeMultiplier;
-    for (const hole of this.holes) {
-      if (hole.hideTimer) this.updateTimerSpeed(hole.hideTimer, enabled, factor);
-    }
-    if (this.spawnTimer) this.updateTimerSpeed(this.spawnTimer, enabled, factor);
-    this.slowMotionFactor = enabled ? factor : 1;
-    this.slowTint?.setAlpha(enabled ? BALANCE.slowMotionTintAlpha : 0);
+  private isFree(hole: Hole): boolean {
+    return hole.mouse === null && hole.item === null && !hole.cover;
+  }
+
+  private randomFreeHole(): Hole | undefined {
+    const freeHoles = this.holes.filter(hole => this.isFree(hole));
+    return freeHoles.length > 0 ? Phaser.Utils.Array.GetRandom(freeHoles) : undefined;
+  }
+
+  blockHole(hole = this.randomFreeHole()): Hole | undefined {
+    if (!hole || !this.isFree(hole) ||
+      this.holes.filter(candidate => candidate.cover).length >= BALANCE.maxBlockedHoles) return;
+
+    const width = HOLE_RADIUS * 2 - 4;
+    const wood = this.scene.add.ellipse(0, 8, width, 54, COLORS.soil)
+      .setStrokeStyle(4, COLORS.holeInner);
+    const details = this.scene.add.graphics().lineStyle(2, COLORS.holeRim)
+      .lineBetween(-49, -2, 49, -2).lineBetween(-49, 18, 49, 18)
+      .fillStyle(COLORS.holeInner);
+    details.fillCircle(-37, 8, 3).fillCircle(37, 8, 3);
+    hole.cover = this.scene.add.container(hole.x, hole.y, [wood, details]).setDepth(2);
+    return hole;
+  }
+
+  unblockHole(hole: Hole): void {
+    hole.cover?.destroy();
+    hole.cover = undefined;
+  }
+
+  isBlockedAt(x: number, y: number): boolean {
+    return this.holes.some(hole => hole.cover &&
+      Phaser.Math.Distance.Between(x, y, hole.x, hole.y + 8) <= HOLE_RADIUS);
   }
 
   stopSpawns(): void {
@@ -95,9 +116,8 @@ export class MouseField {
 
   spawnMouse(visibleMs: number, miss: (hole: Hole) => void, type: MouseType = 'normal'): void {
     if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
-    const freeHoles = this.holes.filter(hole => hole.mouse === null && hole.item === null);
-    if (freeHoles.length === 0) return;
-    const hole = Phaser.Utils.Array.GetRandom(freeHoles);
+    const hole = this.randomFreeHole();
+    if (!hole) return;
     const appearance = makeMouse(this.scene, hole.x, hole.y, type);
     const mouse = appearance.object;
     mouse.setScale(0.2).setAlpha(0);
@@ -111,14 +131,12 @@ export class MouseField {
       if (type === 'decoy' || type === 'golden') this.clearMouse(hole);
       else miss(hole);
     });
-    this.applySlowMotion(hole.hideTimer);
   }
 
   spawnUsefulItem(type: UsefulItemType, visibleMs: number, expire: (hole: Hole) => void): boolean {
     if (this.holes.some(hole => hole.item !== null)) return false;
-    const freeHoles = this.holes.filter(hole => hole.mouse === null && hole.item === null);
-    if (freeHoles.length === 0) return false;
-    const hole = Phaser.Utils.Array.GetRandom(freeHoles);
+    const hole = this.randomFreeHole();
+    if (!hole) return false;
     const item = makeUsefulItem(this.scene, hole.x, hole.y - 8, type).setScale(0.65).setAlpha(0);
     this.scene.tweens.add({ targets: item, scale: 1, alpha: 1, duration: ANIMATION.appear, ease: 'Back.out' });
     hole.item = item;
@@ -144,6 +162,7 @@ export class MouseField {
     hole.itemType = null;
     if (!item) return;
     this.scene.tweens.killTweensOf(item);
+    this.onHoleFreed(hole);
     if (!animate) {
       item.destroy();
       return;
@@ -208,6 +227,7 @@ export class MouseField {
         if (mouseType !== null) this.fadingSpecialTypes.delete(mouseType);
       },
     });
+    this.onHoleFreed(hole);
   }
 
   clearAll(): void {
@@ -215,6 +235,7 @@ export class MouseField {
     for (const hole of this.holes) {
       this.clearMouse(hole);
       this.clearItem(hole, false);
+      this.unblockHole(hole);
     }
   }
 
@@ -226,6 +247,7 @@ export class MouseField {
       hole.itemTimer?.remove();
       hole.helmetTween?.stop();
       hole.item?.destroy();
+      this.unblockHole(hole);
       if (hole.mouse) {
         this.scene.tweens.killTweensOf(hole.mouse);
         hole.mouse.destroy();
@@ -241,11 +263,9 @@ export class MouseField {
       hole.helmetRemoved = false;
     }
     this.fadingSpecialTypes.clear();
-    this.slowMotionFactor = 1;
     this.ground?.destroy();
     this.holeDecor?.destroy();
     this.phaseTint = undefined;
-    this.slowTint = undefined;
   }
 
   private createGround(): void {
@@ -256,9 +276,6 @@ export class MouseField {
     this.phaseTint = this.scene.add.rectangle(w / 2, h - (h - 150) / 2, w - 28, h - 150,
       COLORS.phase2Tint, this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
     this.ground.add(this.phaseTint);
-    this.slowTint = this.scene.add.rectangle(w / 2, h - (h - 150) / 2, w - 28, h - 150,
-      0xc8e8ed, this.slowMotionFactor > 1 ? BALANCE.slowMotionTintAlpha : 0);
-    this.ground.add(this.slowTint);
     const grass = this.scene.add.graphics().lineStyle(2, COLORS.leaf, 0.3);
     for (let i = 0; i < 42; i++) {
       const x = 28 + ((i * 137) % (w - 56));
@@ -303,6 +320,7 @@ export class MouseField {
           hole.x = x; hole.y = y;
           if (hole.mouse) hole.mouse.setPosition(x, y);
           if (hole.item) hole.item.setPosition(x, y - 8);
+          if (hole.cover) hole.cover.setPosition(x, y);
         } else this.holes.push({
           x, y, mouse: null, mouseType: null, item: null, itemType: null,
           helmet: null, helmetRemoved: false,
@@ -313,19 +331,6 @@ export class MouseField {
 
   private applyStageTint(): void {
     this.phaseTint?.setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
-  }
-
-  private applySlowMotion(timer: Phaser.Time.TimerEvent): void {
-    if (this.slowMotionFactor > 1) timer.timeScale = 1 / this.slowMotionFactor;
-  }
-
-  private updateTimerSpeed(timer: Phaser.Time.TimerEvent, enabled: boolean, factor: number): void {
-    if (enabled) {
-      timer.timeScale = 1 / factor;
-      return;
-    }
-    timer.elapsed += timer.getRemaining() * (1 - 1 / factor);
-    timer.timeScale = 1;
   }
 
   private cancelShake(): void {

@@ -16,7 +16,8 @@ export class GameScene extends Phaser.Scene {
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
   private usefulItemTimer?: Phaser.Time.TimerEvent;
-  private slowMotionTimer?: Phaser.Time.TimerEvent;
+  private holeBlockTimer?: Phaser.Time.TimerEvent;
+  private holeBlockPending = false;
   private phaseAudio?: AudioContext;
   private bestScoreAtGameStart = 0;
   private hadRecordAtGameStart = false;
@@ -30,11 +31,16 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.pausedTweens = [];
-    this.field = new MouseField(this);
+    this.field = new MouseField(this, hole => {
+      if (this.holeBlockPending && this.state.phase === 'playing' && this.state.lives > 0) {
+        this.tryBlockHole(hole);
+      }
+    });
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
       restart: () => this.scene.restart({ startImmediately: true }),
+      menu: () => this.scene.restart({ startImmediately: false }),
     }, () => this.progress.snapshot);
     this.layout();
     this.scale.on('resize', this.layout, this);
@@ -46,9 +52,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(): void {
-    if (this.state.phase === 'playing') {
-      this.refreshTime();
-      this.ui.updateSlowMotion(this.slowMotionTimer?.getRemaining());
+    if (this.state.phase === 'playing' && this.refreshTime() && this.holeBlockTimer) {
+      this.ui.updateHoleBlock(this.holeBlockTimer.getRemaining());
     }
   }
 
@@ -74,6 +79,7 @@ export class GameScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (!this.refreshTime()) return;
     const point = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    if (this.field.isBlockedAt(point.x, point.y)) return;
     const item = this.field.findItem(point.x, point.y);
     if (item) {
       this.collectUsefulItem(item);
@@ -99,7 +105,6 @@ export class GameScene extends Phaser.Scene {
     this.hadRecordAtGameStart = progress.hasBestScore;
     this.showedRecordNotification = false;
     this.field.setStage(1);
-    this.field.setSlowMotion(false);
     this.state.start(performance.now());
     this.ui.start();
     this.scheduleSpawns();
@@ -214,16 +219,25 @@ export class GameScene extends Phaser.Scene {
   private scheduleUsefulItem(delayMs: number, guaranteedCheese = false): void {
     this.usefulItemTimer?.remove();
     this.usefulItemTimer = undefined;
-    if (this.state.gameStage !== 3 || this.state.phase !== 'playing' || this.slowMotionTimer) return;
-    this.usefulItemTimer = this.time.delayedCall(delayMs, () => {
-      this.usefulItemTimer = undefined;
-      if (this.state.phase !== 'playing' || this.state.gameStage !== 3 || this.slowMotionTimer) return;
+    if (this.state.gameStage !== 3 || this.state.phase !== 'playing' ||
+      this.holeBlockTimer || this.holeBlockPending) return;
+
+    const offerItem = () => {
+      if (!this.refreshTime()) return;
       const type = guaranteedCheese ? 'cheese' : this.chooseUsefulItemType();
       const spawned = this.field.spawnUsefulItem(type, BALANCE.usefulItemVisibleMs, () => {
         this.scheduleUsefulItem(this.randomUsefulItemDelay());
       });
-      if (!spawned) this.scheduleUsefulItem(BALANCE.usefulItemRetryMs, guaranteedCheese);
-    });
+      if (spawned) {
+        timer.remove();
+        this.usefulItemTimer = undefined;
+      } else if (!timer.loop) {
+        // При заполненном поле тот же таймер повторяет попытки.
+        timer.reset({ delay: BALANCE.usefulItemRetryMs, loop: true, callback: offerItem });
+      }
+    };
+    const timer = this.time.delayedCall(delayMs, offerItem);
+    this.usefulItemTimer = timer;
   }
 
   private chooseUsefulItemType(): UsefulItemType {
@@ -240,26 +254,43 @@ export class GameScene extends Phaser.Scene {
   private collectUsefulItem(hole: Hole): void {
     const type = hole.itemType;
     if (!type) return;
-    this.field.clearItem(hole);
+    this.field.clearItem(hole, type !== 'cheese');
     if (type === 'cheese') {
       this.usefulItemTimer?.remove();
       this.usefulItemTimer = undefined;
-      this.field.setSlowMotion(true);
-      this.ui.updateSlowMotion(BALANCE.cheeseSlowDurationMs);
-      this.slowMotionTimer?.remove();
-      this.slowMotionTimer = this.time.delayedCall(BALANCE.cheeseSlowDurationMs, () => {
-        this.slowMotionTimer = undefined;
-        this.field.setSlowMotion(false);
-        this.ui.updateSlowMotion(undefined);
-        this.scheduleUsefulItem(this.randomUsefulItemDelay());
-      });
-      this.ui.feedback(hole.x, hole.y, 'Замедление!', COLORS.buttonPressed);
+      if (this.holeBlockTimer) {
+        this.holeBlockTimer.elapsed = 0;
+        this.ui.updateHoleBlock(BALANCE.cheeseBlockDurationMs);
+      } else {
+        this.tryBlockHole();
+      }
       return;
     }
 
     const restored = this.state.restoreLife();
     this.ui.showLifeRestored(hole.x, hole.y, restored);
     this.scheduleUsefulItem(this.randomUsefulItemDelay());
+  }
+
+  private tryBlockHole(freedHole?: Hole): void {
+    const hole = this.field.blockHole(freedHole);
+    this.holeBlockPending = !hole;
+    if (!hole) return;
+
+    this.ui.updateHoleBlock(BALANCE.cheeseBlockDurationMs);
+    this.ui.feedback(hole.x, hole.y, 'Нора закрыта!', COLORS.buttonPressed);
+    this.holeBlockTimer = this.time.delayedCall(BALANCE.cheeseBlockDurationMs, () => {
+      this.holeBlockTimer = undefined;
+      this.field.unblockHole(hole);
+      this.ui.updateHoleBlock(undefined);
+      this.scheduleUsefulItem(this.randomUsefulItemDelay());
+    });
+  }
+
+  private cancelHoleBlock(): void {
+    this.holeBlockTimer?.remove();
+    this.holeBlockTimer = undefined;
+    this.holeBlockPending = false;
   }
 
   private playPhaseSignal(): void {
@@ -308,10 +339,8 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer = undefined;
     this.usefulItemTimer?.remove();
     this.usefulItemTimer = undefined;
-    this.slowMotionTimer?.remove();
-    this.slowMotionTimer = undefined;
-    this.field.setSlowMotion(false);
-    this.ui.updateSlowMotion(undefined);
+    this.cancelHoleBlock();
+    this.ui.updateHoleBlock(undefined);
     this.ui.hidePhaseTransition();
     this.state.end();
     this.progress.addCompletedGame(this.state.score);
@@ -324,8 +353,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer = undefined;
     this.usefulItemTimer?.remove();
     this.usefulItemTimer = undefined;
-    this.slowMotionTimer?.remove();
-    this.slowMotionTimer = undefined;
+    this.cancelHoleBlock();
     this.phaseAudio?.close().catch(() => undefined);
     this.phaseAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
