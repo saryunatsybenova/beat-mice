@@ -29,8 +29,9 @@ const FIELD_INSET = 14;
 const FIELD_TOP = 128;
 const FIELD_BOTTOM = 22;
 const FIELD_RADIUS = 36;
-const PREDICTION_MARKER_OFFSET_Y = 35;
-const PREDICTION_MARKER_RADIUS = 14;
+const PREDICTION_MARKER_OFFSET_Y = 45;
+const COMPACT_PREDICTION_MARKER_OFFSET_Y = 33;
+const PREDICTION_MARKER_RADIUS = 22;
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
 export class MouseField {
@@ -60,7 +61,7 @@ export class MouseField {
     this.createHoles();
     if (this.prediction) {
       const { hole, marker } = this.prediction;
-      marker.setPosition(hole.x, hole.y - PREDICTION_MARKER_OFFSET_Y);
+      marker.setPosition(hole.x, this.predictionMarkerY(hole));
     }
     this.applyStageTint();
   }
@@ -161,9 +162,13 @@ export class MouseField {
     const hole = this.randomFreeHole(false);
     if (!hole) return;
     if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
-    const marker = makePredictionMarker(this.scene, hole.x, hole.y - PREDICTION_MARKER_OFFSET_Y,
+    const marker = makePredictionMarker(this.scene, hole.x, this.predictionMarkerY(hole),
       PREDICTION_MARKER_RADIUS, type);
     this.prediction = { hole, type, marker };
+  }
+
+  private predictionMarkerY(hole: Hole): number {
+    return hole.y - (this.layoutHeight === 500 ? COMPACT_PREDICTION_MARKER_OFFSET_Y : PREDICTION_MARKER_OFFSET_Y);
   }
 
   isPredictionAt(x: number, y: number): boolean {

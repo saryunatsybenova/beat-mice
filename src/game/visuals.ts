@@ -97,27 +97,29 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
 export function makePredictionMarker(scene: Phaser.Scene, x: number, y: number, radius: number,
   type: MouseType): Phaser.GameObjects.Container {
   const marker = scene.add.container(x, y).setDepth(3);
-  marker.add(scene.add.circle(0, 0, radius, COLORS.cream).setStrokeStyle(2, COLORS.phase4Tint));
-  const icon = scene.add.graphics();
+  marker.add(scene.add.circle(0, 0, radius, 0x674579));
+  marker.add(scene.add.circle(0, 0, radius - 3, COLORS.cream));
+  const icon = scene.add.graphics().setScale(1.55);
   marker.add(icon);
   switch (type) {
     case 'normal':
       icon.fillStyle(COLORS.holeInner).fillCircle(-5, -5, 4).fillCircle(5, -5, 4).fillEllipse(0, 2, 15, 13);
+      icon.fillStyle(COLORS.cream).fillCircle(-2.7, 1, 1).fillCircle(2.7, 1, 1);
       break;
     case 'decoy':
-      icon.fillStyle(COLORS.leaf).fillEllipse(3, 6, 8, 4);
-      icon.fillStyle(COLORS.pink);
+      icon.fillStyle(COLORS.buttonPressed).fillEllipse(3, 6, 8, 4);
+      icon.fillStyle(0xad3f60);
       for (let i = 0; i < 5; i++) {
         const angle = i * Math.PI * 2 / 5;
         icon.fillCircle(Math.cos(angle) * 4, Math.sin(angle) * 4 - 1, 3.5);
       }
-      icon.fillStyle(COLORS.accent).fillCircle(0, -1, 3.5);
+      icon.fillStyle(0xffd766).fillCircle(0, -1, 3.5);
       break;
     case 'golden':
-      marker.add(scene.add.star(0, 0, 5, 4.5, 9, COLORS.accent).setStrokeStyle(1, COLORS.holeInner));
+      marker.add(scene.add.star(0, 0, 5, 7, 14, 0xffc44d).setStrokeStyle(2, COLORS.holeInner));
       break;
     case 'helmet':
-      icon.fillStyle(0x456775).fillRoundedRect(-7, -8, 14, 13, 5).fillRoundedRect(-9, 2, 18, 5, 2);
+      icon.fillStyle(0x31536a).fillRoundedRect(-7, -8, 14, 13, 5).fillRoundedRect(-9, 2, 18, 5, 2);
       icon.fillStyle(COLORS.cream).fillRect(-1, -7, 2, 8);
       break;
   }
