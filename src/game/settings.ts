@@ -1,4 +1,4 @@
-/** Единственное место для настройки правил и сложности. Все времена — в мс. */
+/** Правила и сложность. Параметры с суффиксом Ms задаются в миллисекундах. */
 export const BALANCE = {
   hitPoints: 1,
   missLives: 1,
@@ -24,13 +24,12 @@ export const BALANCE = {
   helmetHitRadius: 94,
   helmetVisibleTimeMultiplier: 1.5,
   phaseTransitionMs: 1_200,
-  phase3FirstItemDelayMs: 2_000,
-  usefulItemDelayMinMs: 5_000,
-  usefulItemDelayMaxMs: 8_000,
-  usefulItemRetryMs: 500,
-  usefulItemVisibleMs: 3_000,
+  phase3FirstItemAppearances: 3,
+  usefulItemWaitMinAppearances: 8,
+  usefulItemWaitMaxAppearances: 12,
+  usefulItemVisibleAppearances: 4,
   usefulItemChances: { cheese: 0.5, heart: 0.5 },
-  cheeseBlockDurationMs: 10_000,
+  cheeseBlockAppearances: 5,
   maxBlockedHoles: 1,
   phaseShakeMs: 300,
   phaseShakeAmplitude: 4,

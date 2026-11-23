@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BALANCE } from './settings';
 import { COLORS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
-import { panel } from './ui/widgets';
+import { makeText, panel } from './ui/widgets';
 import { makeMouse, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
 
 export interface Hole {
@@ -15,8 +15,9 @@ export interface Hole {
   helmetTween?: Phaser.Tweens.Tween;
   helmetRemoved: boolean;
   hideTimer?: Phaser.Time.TimerEvent;
-  itemTimer?: Phaser.Time.TimerEvent;
+  itemCounter?: Phaser.GameObjects.Text;
   cover?: Phaser.GameObjects.Container;
+  coverCounter?: Phaser.GameObjects.Text;
   fadingObjects: Set<Phaser.GameObjects.Container>;
 }
 
@@ -37,7 +38,8 @@ export class MouseField {
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
 
-  constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void) {}
+  constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
+    private readonly onMouseAppeared: () => void) {}
 
   resize(width: number, height: number): void {
     this.cancelShake();
@@ -96,12 +98,18 @@ export class MouseField {
       .fillStyle(COLORS.holeInner);
     details.fillCircle(-37, 8, 3).fillCircle(37, 8, 3);
     hole.cover = this.scene.add.container(hole.x, hole.y, [wood, details]).setDepth(2);
+    hole.coverCounter = this.addAppearanceCounter(hole.cover, 8);
     return hole;
   }
 
   unblockHole(hole: Hole): void {
     hole.cover?.destroy();
     hole.cover = undefined;
+    hole.coverCounter = undefined;
+  }
+
+  updateBlockCount(hole: Hole, remaining: number): void {
+    hole.coverCounter?.setText(String(remaining));
   }
 
   isBlockedAt(x: number, y: number): boolean {
@@ -136,22 +144,32 @@ export class MouseField {
       if (type === 'decoy' || type === 'golden') this.clearMouse(hole);
       else miss(hole);
     });
+    this.onMouseAppeared();
   }
 
-  spawnUsefulItem(type: UsefulItemType, visibleMs: number, expire: (hole: Hole) => void): boolean {
-    if (this.holes.some(hole => hole.item !== null)) return false;
-    const hole = this.randomFreeHole();
-    if (!hole) return false;
+  spawnUsefulItem(type: UsefulItemType, hole = this.randomFreeHole()): Hole | undefined {
+    if (!hole || !this.isFree(hole) || this.holes.some(candidate => candidate.item !== null)) return;
     const item = makeUsefulItem(this.scene, hole.x, hole.y - 8, type).setScale(0.65).setAlpha(0);
     this.scene.tweens.add({ targets: item, scale: 1, alpha: 1, duration: ANIMATION.appear, ease: 'Back.out' });
     hole.item = item;
     hole.itemType = type;
-    hole.itemTimer = this.scene.time.delayedCall(visibleMs, () => {
-      if (hole.item !== item) return;
-      this.clearItem(hole);
-      expire(hole);
-    });
-    return true;
+    hole.itemCounter = this.addAppearanceCounter(item, 35);
+    return hole;
+  }
+
+  updateItemCount(hole: Hole, remaining: number): void {
+    hole.itemCounter?.setText(String(remaining));
+  }
+
+  private addAppearanceCounter(parent: Phaser.GameObjects.Container, y: number): Phaser.GameObjects.Text {
+    const badge = this.scene.add.container(0, y);
+    const background = this.scene.add.graphics().fillStyle(COLORS.cream)
+      .fillRoundedRect(-22, -11, 44, 22, 10);
+    const mouse = makeMouse(this.scene, -10, 2).object.setScale(0.16);
+    const text = makeText(this.scene, 9, 0, '', 15, COLORS.ink, 0.5, 0.5).setFontStyle('bold');
+    badge.add([background, mouse, text]);
+    parent.add(badge);
+    return text;
   }
 
   findItem(x: number, y: number): Hole | undefined {
@@ -160,11 +178,10 @@ export class MouseField {
   }
 
   clearItem(hole: Hole, animate = true): void {
-    hole.itemTimer?.remove();
-    hole.itemTimer = undefined;
     const item = hole.item;
     hole.item = null;
     hole.itemType = null;
+    hole.itemCounter = undefined;
     if (!item) return;
     this.scene.tweens.killTweensOf(item);
     this.onHoleFreed(hole);
@@ -261,7 +278,6 @@ export class MouseField {
     this.stopSpawns();
     for (const hole of this.holes) {
       hole.hideTimer?.remove();
-      hole.itemTimer?.remove();
       hole.helmetTween?.stop();
       hole.item?.destroy();
       this.unblockHole(hole);
@@ -270,11 +286,11 @@ export class MouseField {
         hole.mouse.destroy();
       }
       hole.hideTimer = undefined;
-      hole.itemTimer = undefined;
       hole.mouse = null;
       hole.mouseType = null;
       hole.item = null;
       hole.itemType = null;
+      hole.itemCounter = undefined;
       hole.helmet = null;
       hole.helmetTween = undefined;
       hole.helmetRemoved = false;

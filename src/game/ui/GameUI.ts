@@ -13,9 +13,7 @@ export class GameUI {
   private stageText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
-  private holeBlockText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
-  private holeBlockRemainingMs?: number;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
@@ -105,14 +103,6 @@ export class GameUI {
     });
   }
 
-  updateHoleBlock(remainingMs?: number): void {
-    this.holeBlockRemainingMs = remainingMs;
-    this.holeBlockText.setVisible(remainingMs !== undefined);
-    if (remainingMs !== undefined) {
-      this.holeBlockText.setText(`Нора закрыта · ${(remainingMs / 1_000).toFixed(1)} с`);
-    }
-  }
-
   showPhaseTransition(stage: 2 | 3, animate = true): void {
     this.hidePhaseTransition();
     const w = this.layoutWidth, h = this.layoutHeight;
@@ -130,7 +120,8 @@ export class GameUI {
       subtitleSize, '#fff8e9', 0.5, 0.5)
       .setStroke('#654635', 5);
     const reminder = stage === 3
-      ? makeText(this.scene, w / 2, centerY + 43, 'Собирай сыр и сердечки',
+      ? makeText(this.scene, w / 2, centerY + 54,
+        `Маленький сыр\nЗакрывает одну нору на ${BALANCE.cheeseBlockAppearances} появлений мышей`,
         Math.min(19, w * 0.042), '#fff8e9', 0.5, 0.5).setStroke('#654635', 4)
       : undefined;
     layer.add([wave, title, subtitle]);
@@ -280,8 +271,7 @@ export class GameUI {
     const progress = this.getProgress();
     this.bestScoreText = makeText(this.scene, cardCenter(1), 76,
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
-    this.holeBlockText = makeText(this.scene, w / 2, 145, '', 17, COLORS.holeInner, 0.5, 0.5);
-    this.hud.add([this.scoreText, this.bestScoreText, this.holeBlockText]);
+    this.hud.add([this.scoreText, this.bestScoreText]);
     const livesCenter = cardCenter(2);
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
@@ -299,7 +289,6 @@ export class GameUI {
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');
-    this.updateHoleBlock(this.holeBlockRemainingMs);
     this.updateStreak();
   }
 
