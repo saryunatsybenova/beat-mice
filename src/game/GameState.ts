@@ -13,6 +13,7 @@ export class GameState {
   bestStreak = 0;
   lives: number = BALANCE.startLives;
   private shieldCharges = 0;
+  private coinActive = false;
   private pausedPhase: 'playing' | 'transition' = 'playing';
 
   get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].spawnIntervalMs; }
@@ -21,6 +22,7 @@ export class GameState {
     return this.gameStage >= 2 && this.streak >= BALANCE.streakThreshold ? BALANCE.streakMultiplier : 1;
   }
   get hasShield(): boolean { return this.shieldCharges > 0; }
+  get hasCoinBonus(): boolean { return this.coinActive; }
 
   reset(): void {
     this.phase = 'menu';
@@ -30,6 +32,7 @@ export class GameState {
     this.bestStreak = 0;
     this.lives = BALANCE.startLives;
     this.clearShield();
+    this.clearCoinBonus();
     this.pausedPhase = 'playing';
   }
 
@@ -60,9 +63,12 @@ export class GameState {
     return this.phase === 'transition' || (this.phase === 'paused' && this.pausedPhase === 'transition');
   }
 
-  hit(basePoints: number = BALANCE.hitPoints): { points: number; enteredPhase?: TransitionStage } | undefined {
+  hit(basePoints: number = BALANCE.hitPoints):
+    { points: number; coinBonus: number; enteredPhase?: TransitionStage } | undefined {
     if (this.phase !== 'playing') return;
-    const points = basePoints * this.scoreMultiplier;
+    const coinBonus = this.coinActive ? BALANCE.cheeseCoinBonus : 0;
+    const points = basePoints * this.scoreMultiplier + coinBonus;
+    this.clearCoinBonus();
     this.score += points;
     if (this.gameStage >= 2) {
       this.streak++;
@@ -70,7 +76,7 @@ export class GameState {
     }
     const enteredPhase = this.advanceStage();
     if (enteredPhase) this.phase = 'transition';
-    return { points, enteredPhase };
+    return { points, coinBonus, enteredPhase };
   }
 
   private advanceStage(): TransitionStage | undefined {
@@ -86,6 +92,12 @@ export class GameState {
   }
 
   clearShield(): void { this.shieldCharges = 0; }
+
+  activateCoinBonus(): void {
+    if (this.phase === 'playing') this.coinActive = true;
+  }
+
+  clearCoinBonus(): void { this.coinActive = false; }
 
   applyMistake(losesLife: boolean): { protected: boolean; brokeStreak: boolean } | undefined {
     if (this.phase !== 'playing') return;
@@ -109,6 +121,7 @@ export class GameState {
     if (this.phase !== 'playing' || this.lives !== 0) return false;
     this.phase = 'gameover';
     this.clearShield();
+    this.clearCoinBonus();
     return true;
   }
 }

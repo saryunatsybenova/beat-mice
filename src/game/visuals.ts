@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS } from './theme';
 
 export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
-export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover';
+export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover' | 'coin';
 
 export interface MouseAppearance {
   object: Phaser.GameObjects.Container;
@@ -94,6 +94,8 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
       }
     }
     item.add(scene.add.circle(0, -1, 3, 0xbcd876));
+  } else if (type === 'coin') {
+    item.add(makeCheeseCoin(scene, 0, 0));
   } else {
     const heart = scene.add.graphics().fillStyle(0xe35469).lineStyle(3, 0x9f3447);
     heart.fillCircle(-11, -8, 13).fillCircle(11, -8, 13);
@@ -103,6 +105,22 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
     item.add(scene.add.circle(-11, -9, 3, 0xffc7cf).setAlpha(0.9));
   }
   return item;
+}
+
+export function makeCheeseCoin(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics {
+  const coin = scene.add.graphics().setPosition(x, y);
+  coin.fillStyle(0x976027).fillCircle(0, 3, 25);
+  coin.fillStyle(0xffcb54).fillCircle(0, 0, 24);
+  coin.lineStyle(2, 0xd18e36).strokeCircle(0, 0, 19);
+  const wedge = [
+    new Phaser.Math.Vector2(-12, 8), new Phaser.Math.Vector2(-13, -1),
+    new Phaser.Math.Vector2(-6, -11), new Phaser.Math.Vector2(13, -1),
+    new Phaser.Math.Vector2(12, 7),
+  ];
+  coin.fillStyle(0xffec9d).fillPoints(wedge, true)
+    .lineStyle(2, 0x9c6029).strokePoints(wedge, true).lineBetween(-13, -1, 13, -1);
+  coin.fillStyle(0xa96728).fillCircle(-5, 3, 2.2).fillCircle(5, 2, 1.8).fillCircle(-3, -5, 1.6);
+  return coin;
 }
 
 export function makePredictionMarker(scene: Phaser.Scene, x: number, y: number, radius: number,

@@ -179,6 +179,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private rewardMouse(hole: Hole, basePoints: number): void {
+    if (hole.mouse === null) return;
     const reward = this.state.hit(basePoints);
     if (!reward) return;
     this.progress.recordScore(this.state.score);
@@ -186,7 +187,10 @@ export class GameScene extends Phaser.Scene {
       this.state.score > this.bestScoreAtGameStart;
     if (newRecord) this.showedRecordNotification = true;
     this.ui.updateScore(newRecord);
-    this.ui.feedback(hole.x, hole.y, `+${reward.points}`, COLORS.buttonPressed);
+    const label = reward.coinBonus > 0
+      ? `+${reward.points - reward.coinBonus} +${reward.coinBonus}` : `+${reward.points}`;
+    this.ui.feedback(hole.x, hole.y, label, COLORS.buttonPressed);
+    if (reward.coinBonus > 0) this.ui.showCoinSpent();
     this.field.clearMouse(hole, true);
     if (reward.enteredPhase) this.startPhaseTransition(reward.enteredPhase);
     if (this.state.streak === BALANCE.streakThreshold) this.ui.showStreakNotice(true);
@@ -286,20 +290,23 @@ export class GameScene extends Phaser.Scene {
 
   private chooseUsefulItemType(): UsefulItemType {
     const chances = this.state.gameStage === 4
-      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0 };
-    const { cheese, bigCheese, heart, shield, glasses, clover } = chances;
+      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0, coin: 0 };
+    const { cheese, bigCheese, heart, shield, glasses, clover, coin } = chances;
     const heartWeight = this.state.lives < BALANCE.startLives ? heart : 0;
     const shieldWeight = this.state.hasShield ? 0 : shield;
+    const coinWeight = this.state.hasCoinBonus ? 0 : coin;
     const cheeseWeight = cheese + bigCheese;
     const heartThreshold = cheeseWeight + heartWeight;
     const shieldThreshold = heartThreshold + shieldWeight;
     const glassesThreshold = shieldThreshold + glasses;
-    const roll = Math.random() * (glassesThreshold + clover);
+    const cloverThreshold = glassesThreshold + clover;
+    const roll = Math.random() * (cloverThreshold + coinWeight);
     if (roll < cheese) return 'cheese';
     if (roll < cheeseWeight) return 'bigCheese';
     if (roll < heartThreshold) return 'heart';
     if (roll < shieldThreshold) return 'shield';
-    return roll < glassesThreshold ? 'glasses' : 'clover';
+    if (roll < glassesThreshold) return 'glasses';
+    return roll < cloverThreshold ? 'clover' : 'coin';
   }
 
   private scheduleNextItem(): void {
@@ -332,6 +339,9 @@ export class GameScene extends Phaser.Scene {
       this.cloverRemaining = BALANCE.cloverConversions;
       this.ui.updateClover(this.cloverRemaining);
       this.ui.showCloverPickup();
+    } else if (type === 'coin') {
+      this.state.activateCoinBonus();
+      this.ui.showCoinPickup();
     } else {
       this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife());
     }
@@ -455,6 +465,7 @@ export class GameScene extends Phaser.Scene {
     this.resetAppearanceEffects();
     this.updateBlockIndicators();
     this.ui.updateShield();
+    this.ui.updateCoin();
     this.ui.updatePredictions(0);
     this.ui.updateClover(0);
     this.ui.hidePhaseTransition();
@@ -468,6 +479,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
     this.state.clearShield();
+    this.state.clearCoinBonus();
     this.phaseAudio?.close().catch(() => undefined);
     this.phaseAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);

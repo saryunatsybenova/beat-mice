@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { GameStage, GameState, TransitionStage } from '../GameState';
 import { BALANCE } from '../settings';
 import { COLORS, ANIMATION } from '../theme';
-import { makeMouse, makeShield } from '../visuals';
+import { makeCheeseCoin, makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
 
@@ -23,6 +23,8 @@ export class GameUI {
   private blockGroupText!: Phaser.GameObjects.Text;
   private predictionsText!: Phaser.GameObjects.Text;
   private cloverText!: Phaser.GameObjects.Text;
+  private coinIndicator!: Phaser.GameObjects.Container;
+  private coinIcon!: Phaser.GameObjects.Graphics;
   private shieldIcon!: Phaser.GameObjects.Graphics;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -244,6 +246,28 @@ export class GameUI {
     this.showTopNotice('Три золотых шанса!');
   }
 
+  updateCoin(): void {
+    const active = this.state.hasCoinBonus;
+    this.coinIndicator.setVisible(active);
+    this.scoreText.setY(this.layoutHeight === 500 && active ? 68 : 76);
+  }
+
+  showCoinPickup(): void {
+    this.updateCoin();
+    this.showTopNotice(`Следующая мышь принесёт +${BALANCE.cheeseCoinBonus}!`);
+  }
+
+  showCoinSpent(): void {
+    this.updateCoin();
+    const coin = makeCheeseCoin(this.scene, this.coinIndicator.x + this.coinIcon.x, this.coinIndicator.y)
+      .setScale(0.36).setDepth(12);
+    this.transientEffects.add(coin);
+    this.scene.tweens.add({
+      targets: coin, x: coin.x + 24, scale: 0.12, alpha: 0, duration: ANIMATION.feedback,
+      ease: 'Cubic.out', onComplete: () => this.destroyTransient(coin),
+    });
+  }
+
   showCloverTransformation(x: number, y: number): void {
     for (const direction of [-1, 1]) {
       const spark = this.scene.add.star(x + 37 * direction, y - 15, 4, 3, 9,
@@ -386,7 +410,14 @@ export class GameUI {
     const progress = this.getProgress();
     this.bestScoreText = makeText(this.scene, cardCenter(1), 76,
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
-    this.hud.add([this.scoreText, this.bestScoreText]);
+    const compact = this.layoutHeight === 500;
+    this.coinIndicator = this.scene.add.container(compact ? cardCenter(0) : w / 2, compact ? 94 : 145);
+    const coinLabel = makeText(this.scene, 10, 0, `Следующая поимка +${BALANCE.cheeseCoinBonus}`,
+      15, COLORS.holeInner, 0.5, 0.5).setFontStyle('bold');
+    this.coinIcon = makeCheeseCoin(this.scene, -coinLabel.width / 2 - 3, 0).setScale(0.3);
+    this.coinIndicator.add([this.coinIcon, coinLabel]);
+    this.hud.add([this.scoreText, this.bestScoreText, this.coinIndicator]);
+    this.updateCoin();
     const livesCenter = cardCenter(2);
     this.shieldIcon = makeShield(this.scene, livesCenter + 44, 40).setScale(0.35);
     this.hud.add(this.shieldIcon);
