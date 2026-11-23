@@ -22,6 +22,7 @@ export class GameUI {
   private streakText!: Phaser.GameObjects.Text;
   private blockGroupText!: Phaser.GameObjects.Text;
   private predictionsText!: Phaser.GameObjects.Text;
+  private cloverText!: Phaser.GameObjects.Text;
   private shieldIcon!: Phaser.GameObjects.Graphics;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -95,8 +96,9 @@ export class GameUI {
   updateBlockGroup(closed?: number, remaining?: number): void {
     this.blockGroupText.setVisible(closed !== undefined);
     if (closed === undefined) return;
+    const remainingLabel = this.layoutWidth === 480 ? 'Появлений' : 'Осталось появлений';
     this.blockGroupText.setText(remaining === undefined ? 'Ожидаем свободные норы' :
-      `Закрыто нор: ${closed} · Осталось появлений: ${remaining}`);
+      `Закрыто нор: ${closed} · ${remainingLabel}: ${remaining}`);
   }
 
   showBigCheeseNotice(): void {
@@ -232,6 +234,26 @@ export class GameUI {
 
   showGlassesPickup(): void {
     this.showTopNotice('Видишь, кто появится!');
+  }
+
+  updateClover(remaining: number): void {
+    this.cloverText.setVisible(remaining > 0).setText(`Клевер: ${remaining}`);
+  }
+
+  showCloverPickup(): void {
+    this.showTopNotice('Три золотых шанса!');
+  }
+
+  showCloverTransformation(x: number, y: number): void {
+    for (const direction of [-1, 1]) {
+      const spark = this.scene.add.star(x + 37 * direction, y - 15, 4, 3, 9,
+        COLORS.accent).setDepth(-1);
+      this.transientEffects.add(spark);
+      this.scene.tweens.add({
+        targets: spark, x: x + 51 * direction, y: y - 26, scale: 0.5, alpha: 0,
+        duration: ANIMATION.feedback, ease: 'Cubic.out', onComplete: () => this.destroyTransient(spark),
+      });
+    }
   }
 
   showShieldPickup(activated: boolean): void {
@@ -383,7 +405,9 @@ export class GameUI {
       .setVisible(false);
     this.predictionsText = makeText(this.scene, 16, this.layoutHeight - 12, '', 16, COLORS.ink, 0, 0.5)
       .setFontStyle('bold').setVisible(false);
-    this.hud.add([this.stageText, this.streakText, this.blockGroupText, this.predictionsText]);
+    this.cloverText = makeText(this.scene, w - 16, this.layoutHeight - 12, '', 16, COLORS.ink, 1, 0.5)
+      .setFontStyle('bold').setVisible(false);
+    this.hud.add([this.stageText, this.streakText, this.blockGroupText, this.predictionsText, this.cloverText]);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');

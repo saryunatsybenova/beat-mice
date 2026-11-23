@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS } from './theme';
 
 export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
-export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses';
+export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover';
 
 export interface MouseAppearance {
   object: Phaser.GameObjects.Container;
@@ -83,6 +83,17 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
     item.add(glasses);
     item.add(scene.add.star(23, -18, 4, 3, 8, COLORS.accent));
     item.add(scene.add.star(-26, 17, 4, 2, 5, COLORS.cream));
+  } else if (type === 'clover') {
+    const stem = scene.add.graphics().lineStyle(4, 0x386135);
+    stem.beginPath().moveTo(1, 3).lineTo(-2, 15).lineTo(-10, 23).strokePath();
+    item.add(stem);
+    for (const x of [-11, 11]) {
+      for (const y of [-12, 9]) {
+        item.add(scene.add.ellipse(x, y, 22, 26, y < 0 ? 0x80bc5a : 0x66a64d)
+          .setAngle(x * y > 0 ? -35 : 35).setStrokeStyle(2, 0x386135));
+      }
+    }
+    item.add(scene.add.circle(0, -1, 3, 0xbcd876));
   } else {
     const heart = scene.add.graphics().fillStyle(0xe35469).lineStyle(3, 0x9f3447);
     heart.fillCircle(-11, -8, 13).fillCircle(11, -8, 13);

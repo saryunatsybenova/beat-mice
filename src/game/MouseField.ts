@@ -22,6 +22,11 @@ export interface Hole {
   fadingObjects: Set<Phaser.GameObjects.Container>;
 }
 
+interface MousePlan {
+  type: MouseType;
+  convertedByClover: boolean;
+}
+
 const HOLE_SOIL_Y = 13;
 const HOLE_SOIL_WIDTH = HOLE_RADIUS * 2 + 8;
 const HOLE_SOIL_HEIGHT = 66;
@@ -46,10 +51,10 @@ export class MouseField {
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private warningTimer?: Phaser.Time.TimerEvent;
-  private prediction?: { hole: Hole; type: MouseType; marker: Phaser.GameObjects.Container };
+  private prediction?: MousePlan & { hole: Hole; marker: Phaser.GameObjects.Container };
 
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
-    private readonly onMouseAppeared: (predicted: boolean) => void) {}
+    private readonly onMouseAppeared: (hole: Hole, predicted: boolean, convertedByClover: boolean) => void) {}
 
   resize(width: number, height: number): void {
     this.cancelShake();
@@ -157,14 +162,14 @@ export class MouseField {
 
   get predictedType(): MouseType | undefined { return this.prediction?.type; }
 
-  reserveMouse(type: MouseType): void {
+  reserveMouse(requested: MouseType, cloverRemaining = 0): void {
     if (this.prediction) return;
     const hole = this.randomFreeHole(false);
     if (!hole) return;
-    if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
+    const plan = this.planMouse(requested, cloverRemaining);
     const marker = makePredictionMarker(this.scene, hole.x, this.predictionMarkerY(hole),
-      PREDICTION_MARKER_RADIUS, type);
-    this.prediction = { hole, type, marker };
+      PREDICTION_MARKER_RADIUS, plan.type);
+    this.prediction = { hole, marker, ...plan };
   }
 
   private predictionMarkerY(hole: Hole): number {
@@ -181,20 +186,37 @@ export class MouseField {
     this.prediction = undefined;
   }
 
-  spawnPredictedMouse(visibleMs: number, miss: (hole: Hole) => void): void {
+  spawnPredictedMouse(baseVisibleMs: number, miss: (hole: Hole) => void): void {
     if (!this.prediction) return;
-    const { hole, type } = this.prediction;
+    const { hole, type, convertedByClover } = this.prediction;
     this.cancelPrediction();
-    if (this.isFree(hole)) this.placeMouse(hole, visibleMs, miss, type, true);
+    if (this.isFree(hole)) {
+      this.placeMouse(hole, this.visibleTime(baseVisibleMs, type), miss, { type, convertedByClover }, true);
+    }
   }
 
-  spawnMouse(visibleMs: number, miss: (hole: Hole) => void, type: MouseType = 'normal'): void {
-    if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
+  spawnMouse(baseVisibleMs: number, miss: (hole: Hole) => void, requested: MouseType = 'normal',
+    cloverRemaining = 0): void {
     const hole = this.randomFreeHole();
-    if (hole) this.placeMouse(hole, visibleMs, miss, type, false);
+    if (!hole) return;
+    const plan = this.planMouse(requested, cloverRemaining);
+    // Обычный запасной выбор сохраняет прежний таймер, превращение использует время показа золотой.
+    const visibleType = plan.convertedByClover ? plan.type : requested;
+    this.placeMouse(hole, this.visibleTime(baseVisibleMs, visibleType), miss, plan, false);
   }
 
-  private placeMouse(hole: Hole, visibleMs: number, miss: (hole: Hole) => void, type: MouseType,
+  private planMouse(requested: MouseType, cloverRemaining: number): MousePlan {
+    const type = requested !== 'normal' && this.hasMouseType(requested) ? 'normal' : requested;
+    const reserved = this.prediction?.convertedByClover ? 1 : 0;
+    const convertedByClover = type === 'normal' && cloverRemaining > reserved && !this.hasMouseType('golden');
+    return { type: convertedByClover ? 'golden' : type, convertedByClover };
+  }
+
+  private visibleTime(baseVisibleMs: number, type: MouseType): number {
+    return baseVisibleMs * (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
+  }
+
+  private placeMouse(hole: Hole, visibleMs: number, miss: (hole: Hole) => void, { type, convertedByClover }: MousePlan,
     predicted: boolean): void {
     const appearance = makeMouse(this.scene, hole.x, hole.y, type);
     const mouse = appearance.object;
@@ -209,7 +231,7 @@ export class MouseField {
       if (type === 'decoy' || type === 'golden') this.clearMouse(hole);
       else miss(hole);
     });
-    this.onMouseAppeared(predicted);
+    this.onMouseAppeared(hole, predicted, convertedByClover);
   }
 
   spawnUsefulItem(type: UsefulItemType, hole = this.randomFreeHole()): Hole | undefined {
