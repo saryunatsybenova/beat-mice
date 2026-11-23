@@ -11,7 +11,6 @@ interface UIActions { start: () => void; resume: () => void; restart: () => void
 const STAGE_COLORS = { 1: '#7a705b', 2: '#9a5b29', 3: '#527d48', 4: '#79507f' } as const;
 const STAGE_SUBTITLES = {
   2: 'Мыши наступают!',
-  3: 'Подкрепление в саду!',
   4: 'Сад полон сюрпризов!',
 } as const;
 
@@ -21,6 +20,7 @@ export class GameUI {
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
+  private blockGroupText!: Phaser.GameObjects.Text;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
@@ -28,6 +28,7 @@ export class GameUI {
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
   private streakNotice?: Phaser.GameObjects.Text;
+  private bigCheeseNotice?: Phaser.GameObjects.Text;
   private readonly transientEffects = new Set<Phaser.GameObjects.GameObject>();
   private layoutWidth = 960;
   private layoutHeight = 640;
@@ -88,6 +89,28 @@ export class GameUI {
       .setFontStyle(active ? 'bold' : 'normal');
   }
 
+  updateBlockGroup(closed?: number, remaining?: number): void {
+    this.blockGroupText.setVisible(closed !== undefined);
+    if (closed === undefined) return;
+    this.blockGroupText.setText(remaining === undefined ? 'Ожидаем свободные норы' :
+      `Закрыто нор: ${closed} · Осталось появлений: ${remaining}`);
+  }
+
+  showBigCheeseNotice(): void {
+    if (this.bigCheeseNotice) {
+      this.scene.tweens.killTweensOf(this.bigCheeseNotice);
+      this.destroyTransient(this.bigCheeseNotice);
+    }
+    const notice = makeText(this.scene, this.layoutWidth / 2, this.layoutHeight - 32,
+      'Закрываем три норы!', 17, COLORS.holeInner, 0.5, 0.5).setFontStyle('bold').setDepth(12);
+    this.bigCheeseNotice = notice;
+    this.transientEffects.add(notice);
+    this.scene.tweens.add({
+      targets: notice, alpha: 0, delay: ANIMATION.feedback, duration: ANIMATION.feedback,
+      onComplete: () => this.destroyTransient(notice),
+    });
+  }
+
   showStreakNotice(activated: boolean): void {
     this.updateStreak();
     if (this.streakNotice) {
@@ -120,29 +143,20 @@ export class GameUI {
       .lineStyle(5, stage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint, 0.28)
       .strokeCircle(w / 2, centerY, Math.min(42, w * 0.09));
     const titleSize = Math.min(42, w * 0.09);
-    const subtitleSize = Math.min(27, w * 0.06);
-    const title = makeText(this.scene, w / 2, centerY - (stage === 3 ? 36 : 18), `ФАЗА ${stage}`, titleSize,
+    const title = makeText(this.scene, w / 2, centerY - (stage === 3 ? 0 : 18), `ФАЗА ${stage}`, titleSize,
       stage === 2 ? '#8a542f' : STAGE_COLORS[stage], 0.5, 0.5);
-    const subtitle = makeText(this.scene, w / 2, centerY + (stage === 3 ? 5 : 28),
-      STAGE_SUBTITLES[stage],
-      subtitleSize, '#fff8e9', 0.5, 0.5)
-      .setStroke('#654635', 5);
-    const reminder = stage === 3
-      ? makeText(this.scene, w / 2, centerY + 54,
-        `Маленький сыр\nЗакрывает одну нору на ${BALANCE.cheeseBlockAppearances} появлений мышей`,
-        Math.min(19, w * 0.042), '#fff8e9', 0.5, 0.5).setStroke('#654635', 4)
-      : undefined;
-    layer.add([wave, title, subtitle]);
-    if (reminder) layer.add(reminder);
+    const labels = [title];
+    if (stage !== 3) {
+      labels.push(makeText(this.scene, w / 2, centerY + 28, STAGE_SUBTITLES[stage],
+        Math.min(27, w * 0.06), '#fff8e9', 0.5, 0.5).setStroke('#654635', 5));
+    }
+    layer.add([wave, ...labels]);
     this.phaseTransitionLayer = layer;
 
     if (!animate) return;
-    title.setAlpha(0);
-    subtitle.setAlpha(0);
-    reminder?.setAlpha(0);
+    labels.forEach(label => label.setAlpha(0));
     this.scene.tweens.add({
-      targets: [title, subtitle, reminder].filter((object): object is Phaser.GameObjects.Text =>
-        object !== undefined), alpha: 1, duration: ANIMATION.phaseText,
+      targets: labels, alpha: 1, duration: ANIMATION.phaseText,
       hold: ANIMATION.phaseTextHold, yoyo: true,
       ease: 'Sine.inOut',
     });
@@ -256,6 +270,7 @@ export class GameUI {
     effect.destroy();
     if (this.decoyWarning === effect) this.decoyWarning = undefined;
     if (this.streakNotice === effect) this.streakNotice = undefined;
+    if (this.bigCheeseNotice === effect) this.bigCheeseNotice = undefined;
   }
 
   private hideDecoyWarning(): void {
@@ -308,7 +323,9 @@ export class GameUI {
     this.stageText = makeText(this.scene, w / 2, 119, '', 18, COLORS.muted, 0.5, 0.5);
     this.showStage(this.state.gameStage);
     this.streakText = makeText(this.scene, w - 16, 119, '', 16, COLORS.ink, 1, 0.5);
-    this.hud.add([this.stageText, this.streakText]);
+    this.blockGroupText = makeText(this.scene, w / 2, this.layoutHeight - 12, '', 16, COLORS.ink, 0.5, 0.5)
+      .setVisible(false);
+    this.hud.add([this.stageText, this.streakText, this.blockGroupText]);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');

@@ -93,7 +93,7 @@ export class MouseField {
 
   blockHole(hole = this.randomFreeHole()): Hole | undefined {
     if (!hole || !this.isFree(hole) ||
-      this.holes.filter(candidate => candidate.cover).length >= BALANCE.maxBlockedHoles) return;
+      this.holes.filter(candidate => candidate.cover).length >= BALANCE.cheeseBlockedHoles.bigCheese) return;
 
     const width = HOLE_RADIUS * 2 - 4;
     const wood = this.scene.add.ellipse(0, 8, width, 54, COLORS.soil)
@@ -186,14 +186,14 @@ export class MouseField {
     for (const hole of this.holes) hole.item?.setVisible(visible);
   }
 
-  clearItem(hole: Hole, animate = true): void {
+  clearItem(hole: Hole, { animate = true, notify = true } = {}): void {
     const item = hole.item;
     hole.item = null;
     hole.itemType = null;
     hole.itemCounter = undefined;
     if (!item) return;
     this.scene.tweens.killTweensOf(item);
-    this.onHoleFreed(hole);
+    if (notify) this.onHoleFreed(hole);
     if (!animate) {
       item.destroy();
       return;
@@ -281,7 +281,7 @@ export class MouseField {
   clearAll(): void {
     this.clearMice();
     for (const hole of this.holes) {
-      this.clearItem(hole, false);
+      this.clearItem(hole, { animate: false });
       this.unblockHole(hole);
     }
   }

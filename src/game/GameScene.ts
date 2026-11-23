@@ -18,8 +18,7 @@ export class GameScene extends Phaser.Scene {
   private mouseAppearances = 0;
   private nextItem?: { at: number; guaranteedCheese: boolean };
   private activeItem?: { hole: Hole; expiresAt: number };
-  private holeBlock?: { hole: Hole; expiresAt: number };
-  private holeBlockPending = false;
+  private holeBlock?: { holes: Hole[]; target: number; expiresAt?: number };
   private phaseAudio?: AudioContext;
   private bestScoreAtGameStart = 0;
   private hadRecordAtGameStart = false;
@@ -58,6 +57,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setZoom(zoom).centerOn(width / 2, height / 2);
     this.field.resize(width, height);
     this.ui.resize(width, height);
+    this.updateBlockIndicators();
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -235,14 +235,17 @@ export class GameScene extends Phaser.Scene {
 
   private tryPendingFieldActions(freedHole?: Hole): void {
     if (this.state.phase !== 'playing' || this.state.gameStage < 3 || this.state.lives === 0) return;
-    if (this.holeBlockPending) this.tryBlockHole(freedHole);
-    else this.tryOfferItem(freedHole);
+    if (this.holeBlock) {
+      if (this.holeBlock.holes.length < this.holeBlock.target) this.fillBlockGroup(freedHole);
+    } else {
+      this.tryOfferItem(freedHole);
+    }
   }
 
   private tryOfferItem(freedHole?: Hole): void {
     const offer = this.nextItem;
     if (!offer || this.mouseAppearances < offer.at || this.activeItem ||
-      this.holeBlock || this.holeBlockPending) return;
+      this.holeBlock) return;
 
     const type = offer.guaranteedCheese ? 'cheese' : this.chooseUsefulItemType();
     const hole = this.field.spawnUsefulItem(type, freedHole);
@@ -266,13 +269,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private chooseUsefulItemType(): UsefulItemType {
-    if (this.state.lives >= BALANCE.startLives) return 'cheese';
-    const { cheese, heart } = BALANCE.usefulItemChances;
-    return Math.random() * (cheese + heart) < cheese ? 'cheese' : 'heart';
+    const { cheese, bigCheese, heart } = BALANCE.usefulItemChances;
+    const heartWeight = this.state.lives < BALANCE.startLives ? heart : 0;
+    const roll = Math.random() * (cheese + bigCheese + heartWeight);
+    if (roll < cheese) return 'cheese';
+    return roll < cheese + bigCheese ? 'bigCheese' : 'heart';
   }
 
   private scheduleNextItem(): void {
-    if (this.holeBlock || this.holeBlockPending) return;
+    if (this.holeBlock) return;
     const appearances = Phaser.Math.Between(BALANCE.usefulItemWaitMinAppearances, BALANCE.usefulItemWaitMaxAppearances);
     this.nextItem = { at: this.mouseAppearances + appearances, guaranteedCheese: false };
   }
@@ -282,46 +287,64 @@ export class GameScene extends Phaser.Scene {
     if (!type) return;
     this.activeItem = undefined;
     this.nextItem = undefined;
-    this.field.clearItem(hole, type !== 'cheese');
-    if (type === 'cheese') {
-      if (this.holeBlock) {
-        this.startHoleBlockCount(this.holeBlock.hole);
-      } else {
-        this.tryBlockHole();
-      }
+    if (type !== 'heart') {
+      // Нора сыра участвует в случайном выборе вместе с другими свободными норами.
+      this.field.clearItem(hole, { animate: false, notify: false });
+      this.applyCheese(BALANCE.cheeseBlockedHoles[type]);
+      if (type === 'bigCheese') this.ui.showBigCheeseNotice();
       return;
     }
 
+    this.field.clearItem(hole);
     const restored = this.state.restoreLife();
     this.ui.showLifeRestored(hole.x, hole.y, restored);
     this.scheduleNextItem();
   }
 
-  private tryBlockHole(freedHole?: Hole): void {
-    const hole = this.field.blockHole(freedHole);
-    this.holeBlockPending = !hole;
-    if (!hole) return;
-
-    this.startHoleBlockCount(hole);
-    this.ui.feedback(hole.x, hole.y, 'Нора закрыта!', COLORS.buttonPressed);
+  private applyCheese(target: number): void {
+    const group = this.holeBlock ??= { holes: [], target };
+    group.target = Math.max(group.target, target);
+    if (group.expiresAt !== undefined) group.expiresAt = this.mouseAppearances + BALANCE.cheeseBlockAppearances;
+    this.fillBlockGroup();
   }
 
-  private startHoleBlockCount(hole: Hole): void {
-    this.holeBlock = { hole, expiresAt: this.mouseAppearances + BALANCE.cheeseBlockAppearances };
-    this.field.updateBlockCount(hole, BALANCE.cheeseBlockAppearances);
+  private fillBlockGroup(freedHole?: Hole): void {
+    const group = this.holeBlock;
+    if (!group) return;
+    while (group.holes.length < group.target) {
+      const hole = this.field.blockHole(freedHole);
+      if (!hole) break;
+      group.holes.push(hole);
+      if (freedHole) break;
+    }
+    const firstHole = group.holes[0];
+    if (firstHole && group.expiresAt === undefined) {
+      group.expiresAt = this.mouseAppearances + BALANCE.cheeseBlockAppearances;
+      if (group.target === BALANCE.cheeseBlockedHoles.cheese) {
+        this.ui.feedback(firstHole.x, firstHole.y, 'Нора закрыта!', COLORS.buttonPressed);
+      }
+    }
+    this.updateBlockIndicators();
   }
 
   private advanceHoleBlock(): void {
-    if (!this.holeBlock) return;
-    const { hole, expiresAt } = this.holeBlock;
-    const remaining = expiresAt - this.mouseAppearances;
-    if (remaining > 0) {
-      this.field.updateBlockCount(hole, remaining);
-      return;
+    const group = this.holeBlock;
+    if (group?.expiresAt === undefined) return;
+    if (this.mouseAppearances >= group.expiresAt) {
+      this.holeBlock = undefined;
+      for (const hole of group.holes) this.field.unblockHole(hole);
+      this.scheduleNextItem();
     }
-    this.holeBlock = undefined;
-    this.field.unblockHole(hole);
-    this.scheduleNextItem();
+    this.updateBlockIndicators();
+  }
+
+  private updateBlockIndicators(): void {
+    const group = this.holeBlock;
+    const remaining = group?.expiresAt === undefined ? undefined : group.expiresAt - this.mouseAppearances;
+    if (group && remaining !== undefined) {
+      for (const hole of group.holes) this.field.updateBlockCount(hole, remaining);
+    }
+    this.ui.updateBlockGroup(group?.holes.length, remaining);
   }
 
   private resetAppearanceEffects(): void {
@@ -329,7 +352,6 @@ export class GameScene extends Phaser.Scene {
     this.nextItem = undefined;
     this.activeItem = undefined;
     this.holeBlock = undefined;
-    this.holeBlockPending = false;
   }
 
   private playPhaseSignal(stage: TransitionStage): void {
@@ -381,6 +403,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
+    this.updateBlockIndicators();
     this.ui.hidePhaseTransition();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();
