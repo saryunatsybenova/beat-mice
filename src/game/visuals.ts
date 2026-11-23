@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { COLORS } from './theme';
 
 export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
-export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart';
+export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield';
 
 export interface MouseAppearance {
   object: Phaser.GameObjects.Container;
@@ -71,6 +71,8 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
       scene.add.circle(-2, 6, 5, 0xd39438),
       scene.add.ellipse(-13, 20, 10, 5, 0xc48330),
     ]);
+  } else if (type === 'shield') {
+    item.add(makeShield(scene, 0, 0));
   } else {
     const heart = scene.add.graphics().fillStyle(0xe35469).lineStyle(3, 0x9f3447);
     heart.fillCircle(-11, -8, 13).fillCircle(11, -8, 13);
@@ -80,6 +82,21 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
     item.add(scene.add.circle(-11, -9, 3, 0xffc7cf).setAlpha(0.9));
   }
   return item;
+}
+
+export function makeShield(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics {
+  const shield = scene.add.graphics().setPosition(x, y);
+  const outline = [
+    new Phaser.Math.Vector2(0, -24), new Phaser.Math.Vector2(24, -16),
+    new Phaser.Math.Vector2(22, 6), new Phaser.Math.Vector2(14, 18),
+    new Phaser.Math.Vector2(0, 27), new Phaser.Math.Vector2(-14, 18),
+    new Phaser.Math.Vector2(-22, 6), new Phaser.Math.Vector2(-24, -16),
+  ];
+  shield.fillStyle(0x6a9ba9).fillPoints(outline, true)
+    .lineStyle(3, 0x365c68).strokePoints(outline, true);
+  shield.fillStyle(COLORS.cream).fillCircle(0, 0, 9);
+  shield.fillStyle(COLORS.accent).fillCircle(0, 0, 5);
+  return shield;
 }
 
 function addFlower(mouse: Phaser.GameObjects.Container, scene: Phaser.Scene): void {

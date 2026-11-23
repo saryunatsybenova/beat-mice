@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { GameStage, GameState, TransitionStage } from '../GameState';
 import { BALANCE } from '../settings';
 import { COLORS, ANIMATION } from '../theme';
-import { makeMouse } from '../visuals';
+import { makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
 
@@ -21,6 +21,7 @@ export class GameUI {
   private bestScoreText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
   private blockGroupText!: Phaser.GameObjects.Text;
+  private shieldIcon!: Phaser.GameObjects.Graphics;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
@@ -29,6 +30,7 @@ export class GameUI {
   private decoyWarning?: Phaser.GameObjects.Container;
   private streakNotice?: Phaser.GameObjects.Text;
   private bigCheeseNotice?: Phaser.GameObjects.Text;
+  private shieldNotice?: Phaser.GameObjects.Text;
   private readonly transientEffects = new Set<Phaser.GameObjects.GameObject>();
   private layoutWidth = 960;
   private layoutHeight = 640;
@@ -219,6 +221,47 @@ export class GameUI {
     this.feedback(x, y, 'Жизни полные', COLORS.buttonPressed);
   }
 
+  updateShield(): void {
+    this.shieldIcon.setVisible(this.state.hasShield);
+  }
+
+  showShieldPickup(activated: boolean): void {
+    this.updateShield();
+    if (activated) this.animateShield(0x528797);
+    this.showShieldNotice(activated ? 'Защищает от одной ошибки и сохраняет серию' : 'Щит уже активен');
+  }
+
+  showShieldSaved(): void {
+    this.updateShield();
+    this.animateShield(COLORS.accent);
+    this.showShieldNotice('Щит спас!');
+  }
+
+  private animateShield(color: number): void {
+    const ring = this.scene.add.circle(this.shieldIcon.x, this.shieldIcon.y, 10)
+      .setStrokeStyle(3, color).setDepth(12);
+    this.transientEffects.add(ring);
+    this.scene.tweens.add({
+      targets: ring, alpha: 0, scale: 1.55, duration: ANIMATION.feedback, ease: 'Cubic.out',
+      onComplete: () => this.destroyTransient(ring),
+    });
+  }
+
+  private showShieldNotice(label: string): void {
+    if (this.shieldNotice) {
+      this.scene.tweens.killTweensOf(this.shieldNotice);
+      this.destroyTransient(this.shieldNotice);
+    }
+    const notice = makeText(this.scene, this.layoutWidth / 2, 9, label, 15, COLORS.ink, 0.5, 0.5)
+      .setFontStyle('bold').setDepth(12);
+    this.shieldNotice = notice;
+    this.transientEffects.add(notice);
+    this.scene.tweens.add({
+      targets: notice, alpha: 0, delay: 900, duration: ANIMATION.feedback,
+      onComplete: () => this.destroyTransient(notice),
+    });
+  }
+
   showDecoyWarning(): void {
     this.hideDecoyWarning();
     const width = Math.min(440, this.layoutWidth - 32);
@@ -271,6 +314,7 @@ export class GameUI {
     if (this.decoyWarning === effect) this.decoyWarning = undefined;
     if (this.streakNotice === effect) this.streakNotice = undefined;
     if (this.bigCheeseNotice === effect) this.bigCheeseNotice = undefined;
+    if (this.shieldNotice === effect) this.shieldNotice = undefined;
   }
 
   private hideDecoyWarning(): void {
@@ -313,6 +357,9 @@ export class GameUI {
       progress.bestScore.toLocaleString('ru-RU'), 27, COLORS.ink, 0.5, 0.5);
     this.hud.add([this.scoreText, this.bestScoreText]);
     const livesCenter = cardCenter(2);
+    this.shieldIcon = makeShield(this.scene, livesCenter + 44, 40).setScale(0.35);
+    this.hud.add(this.shieldIcon);
+    this.updateShield();
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {
       const heart = this.scene.add.graphics()

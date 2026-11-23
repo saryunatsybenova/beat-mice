@@ -72,8 +72,9 @@ export class GameScene extends Phaser.Scene {
     const hole = this.field.findMouse(point.x, point.y);
     if (hole) {
       this.hitMouse(hole);
-    } else if (this.field.findEmptyHole(point.x, point.y) && this.state.breakStreak()) {
-      this.ui.showStreakNotice(false);
+    } else {
+      const emptyHole = this.field.findEmptyHole(point.x, point.y);
+      if (emptyHole) this.handleMistake(emptyHole, 'empty');
     }
   }
 
@@ -127,7 +128,7 @@ export class GameScene extends Phaser.Scene {
     const type = this.chooseMouseType();
     const visibleMs = this.state.mouseVisibleMs *
       (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
-    this.field.spawnMouse(visibleMs, hole => this.missMouse(hole), type);
+    this.field.spawnMouse(visibleMs, hole => this.handleMistake(hole, 'miss'), type);
   }
 
   private chooseMouseType(): MouseType {
@@ -145,13 +146,7 @@ export class GameScene extends Phaser.Scene {
   private hitMouse(hole: Hole): void {
     if (this.state.phase !== 'playing' || hole.mouse === null) return;
     if (hole.mouseType === 'decoy') {
-      const brokeStreak = this.state.miss();
-      this.ui.showMiss();
-      this.ui.showDecoyWarning();
-      this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
-      this.field.clearMouse(hole, true);
-      if (this.state.lives === 0) this.endGame();
-      if (brokeStreak) this.ui.showStreakNotice(false);
+      this.handleMistake(hole, 'decoy');
       return;
     }
 
@@ -243,6 +238,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryOfferItem(freedHole?: Hole): void {
+    if (this.state.phase !== 'playing' || this.state.gameStage < 3) return;
     const offer = this.nextItem;
     if (!offer || this.mouseAppearances < offer.at || this.activeItem ||
       this.holeBlock) return;
@@ -269,11 +265,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private chooseUsefulItemType(): UsefulItemType {
-    const { cheese, bigCheese, heart } = BALANCE.usefulItemChances;
+    const { cheese, bigCheese, heart, shield } = BALANCE.usefulItemChances;
     const heartWeight = this.state.lives < BALANCE.startLives ? heart : 0;
-    const roll = Math.random() * (cheese + bigCheese + heartWeight);
+    const shieldWeight = this.state.hasShield ? 0 : shield;
+    const cheeseWeight = cheese + bigCheese;
+    const roll = Math.random() * (cheeseWeight + heartWeight + shieldWeight);
     if (roll < cheese) return 'cheese';
-    return roll < cheese + bigCheese ? 'bigCheese' : 'heart';
+    if (roll < cheeseWeight) return 'bigCheese';
+    return roll < cheeseWeight + heartWeight ? 'heart' : 'shield';
   }
 
   private scheduleNextItem(): void {
@@ -287,7 +286,7 @@ export class GameScene extends Phaser.Scene {
     if (!type) return;
     this.activeItem = undefined;
     this.nextItem = undefined;
-    if (type !== 'heart') {
+    if (type === 'cheese' || type === 'bigCheese') {
       // Нора сыра участвует в случайном выборе вместе с другими свободными норами.
       this.field.clearItem(hole, { animate: false, notify: false });
       this.applyCheese(BALANCE.cheeseBlockedHoles[type]);
@@ -295,9 +294,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.field.clearItem(hole);
-    const restored = this.state.restoreLife();
-    this.ui.showLifeRestored(hole.x, hole.y, restored);
+    this.field.clearItem(hole, { animate: type === 'heart' });
+    if (type === 'shield') {
+      this.ui.showShieldPickup(this.state.activateShield());
+    } else {
+      this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife());
+    }
     this.scheduleNextItem();
   }
 
@@ -388,14 +390,25 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private missMouse(hole: Hole): void {
-    if (this.state.phase !== 'playing' || hole.mouse === null) return;
-    const brokeStreak = this.state.miss();
-    this.ui.showMiss();
-    this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
-    this.field.clearMouse(hole);
-    if (this.state.lives === 0) this.endGame();
-    if (brokeStreak) this.ui.showStreakNotice(false);
+  private handleMistake(hole: Hole, kind: 'miss' | 'decoy' | 'empty'): void {
+    const losesLife = kind !== 'empty';
+    if (losesLife && hole.mouse === null) return;
+    const outcome = this.state.applyMistake(losesLife);
+    if (!outcome) return;
+
+    if (losesLife) this.field.clearMouse(hole, kind === 'decoy');
+    if (outcome.protected) {
+      this.ui.showShieldSaved();
+      return;
+    }
+
+    if (losesLife) {
+      this.ui.showMiss();
+      if (kind === 'decoy') this.ui.showDecoyWarning();
+      this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
+      if (this.state.lives === 0) this.endGame();
+    }
+    if (outcome.brokeStreak) this.ui.showStreakNotice(false);
   }
 
   private endGame(): void {
@@ -404,6 +417,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
     this.updateBlockIndicators();
+    this.ui.updateShield();
     this.ui.hidePhaseTransition();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();
@@ -414,6 +428,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
+    this.state.clearShield();
     this.phaseAudio?.close().catch(() => undefined);
     this.phaseAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
