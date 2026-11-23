@@ -16,6 +16,7 @@ export class GameScene extends Phaser.Scene {
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
   private mouseAppearances = 0;
+  private predictionsRemaining = 0;
   private nextItem?: { at: number; guaranteedCheese: boolean };
   private activeItem?: { hole: Hole; expiresAt: number };
   private holeBlock?: { holes: Hole[]; target: number; expiresAt?: number };
@@ -32,7 +33,8 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.pausedTweens = [];
-    this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole), () => this.handleMouseAppeared());
+    this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole),
+      predicted => this.handleMouseAppeared(predicted));
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
@@ -58,12 +60,13 @@ export class GameScene extends Phaser.Scene {
     this.field.resize(width, height);
     this.ui.resize(width, height);
     this.updateBlockIndicators();
+    this.ui.updatePredictions(this.predictionsRemaining);
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.state.phase !== 'playing') return;
     const point = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    if (this.field.isBlockedAt(point.x, point.y)) return;
+    if (this.field.isBlockedAt(point.x, point.y) || this.field.isPredictionAt(point.x, point.y)) return;
     const item = this.field.findItem(point.x, point.y);
     if (item) {
       this.collectUsefulItem(item);
@@ -120,15 +123,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   private scheduleSpawns(): void {
-    this.field.scheduleSpawns(this.state.spawnIntervalMs, () => this.spawnMouse());
+    const warn = this.state.gameStage === 4 ? () => this.warnAboutMouse() : undefined;
+    this.field.scheduleSpawns(this.state.spawnIntervalMs, () => this.spawnMouse(), warn);
+  }
+
+  private warnAboutMouse(): void {
+    if (this.state.phase !== 'playing' || this.predictionsRemaining === 0) return;
+    this.field.reserveMouse(this.chooseMouseType());
   }
 
   private spawnMouse(): void {
     if (this.state.phase !== 'playing') return;
-    const type = this.chooseMouseType();
+    const prediction = this.field.predictedType;
+    const type = prediction ?? this.chooseMouseType();
     const visibleMs = this.state.mouseVisibleMs *
       (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
-    this.field.spawnMouse(visibleMs, hole => this.handleMistake(hole, 'miss'), type);
+    const miss = (hole: Hole) => this.handleMistake(hole, 'miss');
+    if (prediction) this.field.spawnPredictedMouse(visibleMs, miss);
+    else this.field.spawnMouse(visibleMs, miss, type);
   }
 
   private chooseMouseType(): MouseType {
@@ -218,11 +230,15 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private handleMouseAppeared(): void {
+  private handleMouseAppeared(predicted: boolean): void {
     if (this.state.phase !== 'playing' || this.state.lives === 0) return;
     // Сначала учитываем мышь, затем обновляем действующие эффекты и предлагаем предмет.
     // Новые сроки считаются от уже обновлённого числа появлений.
     this.mouseAppearances++;
+    if (predicted && this.predictionsRemaining > 0) {
+      this.predictionsRemaining--;
+      this.ui.updatePredictions(this.predictionsRemaining);
+    }
     this.advanceHoleBlock();
     this.advanceActiveItem();
     this.tryOfferItem();
@@ -265,14 +281,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private chooseUsefulItemType(): UsefulItemType {
-    const { cheese, bigCheese, heart, shield } = BALANCE.usefulItemChances;
+    const chances = this.state.gameStage === 4
+      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0 };
+    const { cheese, bigCheese, heart, shield, glasses } = chances;
+    const glassesWeight = import.meta.env.DEV && glasses > 0 ? BALANCE.testGlassesWeight : glasses;
     const heartWeight = this.state.lives < BALANCE.startLives ? heart : 0;
     const shieldWeight = this.state.hasShield ? 0 : shield;
     const cheeseWeight = cheese + bigCheese;
-    const roll = Math.random() * (cheeseWeight + heartWeight + shieldWeight);
+    const heartThreshold = cheeseWeight + heartWeight;
+    const shieldThreshold = heartThreshold + shieldWeight;
+    const roll = Math.random() * (shieldThreshold + glassesWeight);
     if (roll < cheese) return 'cheese';
     if (roll < cheeseWeight) return 'bigCheese';
-    return roll < cheeseWeight + heartWeight ? 'heart' : 'shield';
+    if (roll < heartThreshold) return 'heart';
+    return roll < shieldThreshold ? 'shield' : 'glasses';
   }
 
   private scheduleNextItem(): void {
@@ -297,6 +319,10 @@ export class GameScene extends Phaser.Scene {
     this.field.clearItem(hole, { animate: type === 'heart' });
     if (type === 'shield') {
       this.ui.showShieldPickup(this.state.activateShield());
+    } else if (type === 'glasses') {
+      this.predictionsRemaining = BALANCE.glassesPredictions;
+      this.ui.updatePredictions(this.predictionsRemaining);
+      this.ui.showGlassesPickup();
     } else {
       this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife());
     }
@@ -351,6 +377,7 @@ export class GameScene extends Phaser.Scene {
 
   private resetAppearanceEffects(): void {
     this.mouseAppearances = 0;
+    this.predictionsRemaining = 0;
     this.nextItem = undefined;
     this.activeItem = undefined;
     this.holeBlock = undefined;
@@ -418,6 +445,7 @@ export class GameScene extends Phaser.Scene {
     this.resetAppearanceEffects();
     this.updateBlockIndicators();
     this.ui.updateShield();
+    this.ui.updatePredictions(0);
     this.ui.hidePhaseTransition();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();

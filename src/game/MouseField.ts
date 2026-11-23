@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { BALANCE } from './settings';
 import { COLORS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
 import { makeText, panel } from './ui/widgets';
-import { makeMouse, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
+import { makeMouse, makePredictionMarker, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
 import type { GameStage } from './GameState';
 
 export interface Hole {
@@ -29,6 +29,8 @@ const FIELD_INSET = 14;
 const FIELD_TOP = 128;
 const FIELD_BOTTOM = 22;
 const FIELD_RADIUS = 36;
+const PREDICTION_MARKER_OFFSET_Y = 35;
+const PREDICTION_MARKER_RADIUS = 14;
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
 export class MouseField {
@@ -42,9 +44,11 @@ export class MouseField {
   private layoutWidth = 960;
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
+  private warningTimer?: Phaser.Time.TimerEvent;
+  private prediction?: { hole: Hole; type: MouseType; marker: Phaser.GameObjects.Container };
 
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
-    private readonly onMouseAppeared: () => void) {}
+    private readonly onMouseAppeared: (predicted: boolean) => void) {}
 
   resize(width: number, height: number): void {
     this.cancelShake();
@@ -54,6 +58,10 @@ export class MouseField {
     this.holeDecor?.destroy();
     this.createGround();
     this.createHoles();
+    if (this.prediction) {
+      const { hole, marker } = this.prediction;
+      marker.setPosition(hole.x, hole.y - PREDICTION_MARKER_OFFSET_Y);
+    }
     this.applyStageTint();
   }
 
@@ -77,17 +85,28 @@ export class MouseField {
     });
   }
 
-  scheduleSpawns(intervalMs: number, spawn: () => void): void {
+  scheduleSpawns(intervalMs: number, spawn: () => void, warn?: () => void): void {
     this.stopSpawns();
     this.spawnTimer = this.scene.time.addEvent({ delay: intervalMs, loop: true, callback: spawn });
+    if (!warn) return;
+    const lead = intervalMs > BALANCE.glassesWarningMs ? BALANCE.glassesWarningMs : intervalMs / 2;
+    this.warningTimer = this.scene.time.addEvent({
+      delay: intervalMs, startAt: lead, loop: true,
+      callback: () => {
+        // Таймер появления обновляется первым. Если кадр перескочил оба срока,
+        // мышь этого интервала уже появилась, и запоздалое предупреждение пропускается.
+        const remaining = this.spawnTimer?.getRemaining();
+        if (remaining !== undefined && remaining > 0 && remaining <= lead) warn();
+      },
+    });
   }
 
   private isFree(hole: Hole): boolean {
-    return hole.mouse === null && hole.item === null && !hole.cover;
+    return hole.mouse === null && hole.item === null && !hole.cover && this.prediction?.hole !== hole;
   }
 
-  private randomFreeHole(): Hole | undefined {
-    const freeHoles = this.holes.filter(hole => this.isFree(hole));
+  private randomFreeHole(allowFading = true): Hole | undefined {
+    const freeHoles = this.holes.filter(hole => this.isFree(hole) && (allowFading || hole.fadingObjects.size === 0));
     return freeHoles.length > 0 ? Phaser.Utils.Array.GetRandom(freeHoles) : undefined;
   }
 
@@ -125,17 +144,53 @@ export class MouseField {
   stopSpawns(): void {
     this.spawnTimer?.remove();
     this.spawnTimer = undefined;
+    this.warningTimer?.remove();
+    this.warningTimer = undefined;
+    this.cancelPrediction();
   }
 
   hasMouseType(type: MouseType): boolean {
-    return this.fadingSpecialTypes.has(type) ||
+    return this.prediction?.type === type || this.fadingSpecialTypes.has(type) ||
       this.holes.some(hole => hole.mouseType === type);
+  }
+
+  get predictedType(): MouseType | undefined { return this.prediction?.type; }
+
+  reserveMouse(type: MouseType): void {
+    if (this.prediction) return;
+    const hole = this.randomFreeHole(false);
+    if (!hole) return;
+    if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
+    const marker = makePredictionMarker(this.scene, hole.x, hole.y - PREDICTION_MARKER_OFFSET_Y,
+      PREDICTION_MARKER_RADIUS, type);
+    this.prediction = { hole, type, marker };
+  }
+
+  isPredictionAt(x: number, y: number): boolean {
+    const marker = this.prediction?.marker;
+    return marker !== undefined && Phaser.Math.Distance.Between(x, y, marker.x, marker.y) <= PREDICTION_MARKER_RADIUS;
+  }
+
+  cancelPrediction(): void {
+    this.prediction?.marker.destroy();
+    this.prediction = undefined;
+  }
+
+  spawnPredictedMouse(visibleMs: number, miss: (hole: Hole) => void): void {
+    if (!this.prediction) return;
+    const { hole, type } = this.prediction;
+    this.cancelPrediction();
+    if (this.isFree(hole)) this.placeMouse(hole, visibleMs, miss, type, true);
   }
 
   spawnMouse(visibleMs: number, miss: (hole: Hole) => void, type: MouseType = 'normal'): void {
     if (type !== 'normal' && this.hasMouseType(type)) type = 'normal';
     const hole = this.randomFreeHole();
-    if (!hole) return;
+    if (hole) this.placeMouse(hole, visibleMs, miss, type, false);
+  }
+
+  private placeMouse(hole: Hole, visibleMs: number, miss: (hole: Hole) => void, type: MouseType,
+    predicted: boolean): void {
     const appearance = makeMouse(this.scene, hole.x, hole.y, type);
     const mouse = appearance.object;
     mouse.setScale(0.2).setAlpha(0);
@@ -149,7 +204,7 @@ export class MouseField {
       if (type === 'decoy' || type === 'golden') this.clearMouse(hole);
       else miss(hole);
     });
-    this.onMouseAppeared();
+    this.onMouseAppeared(predicted);
   }
 
   spawnUsefulItem(type: UsefulItemType, hole = this.randomFreeHole()): Hole | undefined {

@@ -21,6 +21,7 @@ export class GameUI {
   private bestScoreText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
   private blockGroupText!: Phaser.GameObjects.Text;
+  private predictionsText!: Phaser.GameObjects.Text;
   private shieldIcon!: Phaser.GameObjects.Graphics;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -30,7 +31,7 @@ export class GameUI {
   private decoyWarning?: Phaser.GameObjects.Container;
   private streakNotice?: Phaser.GameObjects.Text;
   private bigCheeseNotice?: Phaser.GameObjects.Text;
-  private shieldNotice?: Phaser.GameObjects.Text;
+  private topNotice?: Phaser.GameObjects.Text;
   private readonly transientEffects = new Set<Phaser.GameObjects.GameObject>();
   private layoutWidth = 960;
   private layoutHeight = 640;
@@ -225,16 +226,24 @@ export class GameUI {
     this.shieldIcon.setVisible(this.state.hasShield);
   }
 
+  updatePredictions(remaining: number): void {
+    this.predictionsText.setVisible(remaining > 0).setText(`Очки: ${remaining}`);
+  }
+
+  showGlassesPickup(): void {
+    this.showTopNotice('Видишь, кто появится!');
+  }
+
   showShieldPickup(activated: boolean): void {
     this.updateShield();
     if (activated) this.animateShield(0x528797);
-    this.showShieldNotice(activated ? 'Защищает от одной ошибки и сохраняет серию' : 'Щит уже активен');
+    this.showTopNotice(activated ? 'Защищает от одной ошибки и сохраняет серию' : 'Щит уже активен');
   }
 
   showShieldSaved(): void {
     this.updateShield();
     this.animateShield(COLORS.accent);
-    this.showShieldNotice('Щит спас!');
+    this.showTopNotice('Щит спас!');
   }
 
   private animateShield(color: number): void {
@@ -247,14 +256,14 @@ export class GameUI {
     });
   }
 
-  private showShieldNotice(label: string): void {
-    if (this.shieldNotice) {
-      this.scene.tweens.killTweensOf(this.shieldNotice);
-      this.destroyTransient(this.shieldNotice);
+  private showTopNotice(label: string): void {
+    if (this.topNotice) {
+      this.scene.tweens.killTweensOf(this.topNotice);
+      this.destroyTransient(this.topNotice);
     }
     const notice = makeText(this.scene, this.layoutWidth / 2, 9, label, 15, COLORS.ink, 0.5, 0.5)
       .setFontStyle('bold').setDepth(12);
-    this.shieldNotice = notice;
+    this.topNotice = notice;
     this.transientEffects.add(notice);
     this.scene.tweens.add({
       targets: notice, alpha: 0, delay: 900, duration: ANIMATION.feedback,
@@ -314,7 +323,7 @@ export class GameUI {
     if (this.decoyWarning === effect) this.decoyWarning = undefined;
     if (this.streakNotice === effect) this.streakNotice = undefined;
     if (this.bigCheeseNotice === effect) this.bigCheeseNotice = undefined;
-    if (this.shieldNotice === effect) this.shieldNotice = undefined;
+    if (this.topNotice === effect) this.topNotice = undefined;
   }
 
   private hideDecoyWarning(): void {
@@ -372,7 +381,9 @@ export class GameUI {
     this.streakText = makeText(this.scene, w - 16, 119, '', 16, COLORS.ink, 1, 0.5);
     this.blockGroupText = makeText(this.scene, w / 2, this.layoutHeight - 12, '', 16, COLORS.ink, 0.5, 0.5)
       .setVisible(false);
-    this.hud.add([this.stageText, this.streakText, this.blockGroupText]);
+    this.predictionsText = makeText(this.scene, 16, this.layoutHeight - 12, '', 16, COLORS.ink, 0, 0.5)
+      .setFontStyle('bold').setVisible(false);
+    this.hud.add([this.stageText, this.streakText, this.blockGroupText, this.predictionsText]);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');
