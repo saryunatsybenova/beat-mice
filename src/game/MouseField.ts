@@ -3,6 +3,7 @@ import { BALANCE } from './settings';
 import { COLORS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
 import { makeText, panel } from './ui/widgets';
 import { makeMouse, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
+import type { GameStage } from './GameState';
 
 export interface Hole {
   x: number;
@@ -24,14 +25,18 @@ export interface Hole {
 const HOLE_SOIL_Y = 13;
 const HOLE_SOIL_WIDTH = HOLE_RADIUS * 2 + 8;
 const HOLE_SOIL_HEIGHT = 66;
+const FIELD_INSET = 14;
+const FIELD_TOP = 128;
+const FIELD_BOTTOM = 22;
+const FIELD_RADIUS = 36;
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
 export class MouseField {
   readonly holes: Hole[] = [];
   private ground?: Phaser.GameObjects.Container;
   private holeDecor?: Phaser.GameObjects.Container;
-  private phaseTint?: Phaser.GameObjects.Rectangle;
-  private gameStage: 1 | 2 | 3 = 1;
+  private phaseTint?: Phaser.GameObjects.Graphics;
+  private gameStage: GameStage = 1;
   private shakeTween?: Phaser.Tweens.Tween;
   private readonly fadingSpecialTypes = new Set<MouseType>();
   private layoutWidth = 960;
@@ -52,7 +57,7 @@ export class MouseField {
     this.applyStageTint();
   }
 
-  setStage(stage: 1 | 2 | 3): void {
+  setStage(stage: GameStage): void {
     this.gameStage = stage;
     this.applyStageTint();
   }
@@ -173,8 +178,12 @@ export class MouseField {
   }
 
   findItem(x: number, y: number): Hole | undefined {
-    return this.holes.find(hole => hole.item !== null &&
+    return this.holes.find(hole => hole.item?.visible &&
       Phaser.Math.Distance.Between(x, y, hole.x, hole.y) <= BALANCE.usefulItemHitRadius);
+  }
+
+  setItemsVisible(visible: boolean): void {
+    for (const hole of this.holes) hole.item?.setVisible(visible);
   }
 
   clearItem(hole: Hole, animate = true): void {
@@ -264,10 +273,14 @@ export class MouseField {
     this.onHoleFreed(hole);
   }
 
-  clearAll(): void {
+  clearMice(): void {
     this.stopSpawns();
+    for (const hole of this.holes) this.clearMouse(hole);
+  }
+
+  clearAll(): void {
+    this.clearMice();
     for (const hole of this.holes) {
-      this.clearMouse(hole);
       this.clearItem(hole, false);
       this.unblockHole(hole);
     }
@@ -306,9 +319,9 @@ export class MouseField {
     const w = this.layoutWidth, h = this.layoutHeight;
     this.ground = this.scene.add.container(0, 0).setDepth(-10);
     this.ground.add(this.scene.add.rectangle(w / 2, h / 2, w * 3, h * 3, COLORS.ground));
-    this.ground.add(panel(this.scene, 14, 128, w - 28, h - 150, 36, COLORS.grass));
-    this.phaseTint = this.scene.add.rectangle(w / 2, h - (h - 150) / 2, w - 28, h - 150,
-      COLORS.phase2Tint, this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
+    this.ground.add(panel(this.scene, FIELD_INSET, FIELD_TOP, w - 2 * FIELD_INSET,
+      h - FIELD_TOP - FIELD_BOTTOM, FIELD_RADIUS, COLORS.grass));
+    this.phaseTint = this.scene.add.graphics();
     this.ground.add(this.phaseTint);
     const grass = this.scene.add.graphics().lineStyle(2, COLORS.leaf, 0.3);
     for (let i = 0; i < 42; i++) {
@@ -365,7 +378,10 @@ export class MouseField {
   }
 
   private applyStageTint(): void {
-    this.phaseTint?.setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
+    this.phaseTint?.clear().fillStyle(this.gameStage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint)
+      .fillRoundedRect(FIELD_INSET, FIELD_TOP, this.layoutWidth - 2 * FIELD_INSET,
+        this.layoutHeight - FIELD_TOP - FIELD_BOTTOM, FIELD_RADIUS)
+      .setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
   }
 
   private cancelShake(): void {

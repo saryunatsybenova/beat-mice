@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameState } from '../GameState';
+import type { GameStage, GameState, TransitionStage } from '../GameState';
 import { BALANCE } from '../settings';
 import { COLORS, ANIMATION } from '../theme';
 import { makeMouse } from '../visuals';
@@ -7,6 +7,13 @@ import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
 
 interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; }
+
+const STAGE_COLORS = { 1: '#7a705b', 2: '#9a5b29', 3: '#527d48', 4: '#79507f' } as const;
+const STAGE_SUBTITLES = {
+  2: 'Мыши наступают!',
+  3: 'Подкрепление в саду!',
+  4: 'Сад полон сюрпризов!',
+} as const;
 
 /** HUD, всплывающие подсказки и экраны. Не изменяет игровые правила. */
 export class GameUI {
@@ -47,8 +54,9 @@ export class GameUI {
     }
     if (this.phaseTransitionLayer) {
       this.hidePhaseTransition();
-      if (this.state.isTransitioning) {
-        this.showPhaseTransition(this.state.gameStage === 3 ? 3 : 2, false);
+      const stage = this.state.gameStage;
+      if (this.state.isTransitioning && stage !== 1) {
+        this.showPhaseTransition(stage, false);
       }
     }
   }
@@ -65,13 +73,13 @@ export class GameUI {
     if (newRecord) this.showNewRecord();
   }
 
-  showStage(stage: 2 | 3): void {
-    this.stageText.setText(`ФАЗА ${stage}`).setColor(stage === 2 ? '#9a5b29' : '#527d48');
+  showStage(stage: GameStage): void {
+    this.stageText.setText(stage === 4 ? 'Фаза 4' : `ФАЗА ${stage}`).setColor(STAGE_COLORS[stage]);
   }
 
   updateStreak(): void {
     const { gameStage, streak, isTransitioning } = this.state;
-    this.streakText.setVisible(gameStage === 3 || (gameStage === 2 && !isTransitioning));
+    this.streakText.setVisible(gameStage >= 3 || (gameStage === 2 && !isTransitioning));
     const active = this.state.scoreMultiplier > 1;
     const multiplier = `×${BALANCE.streakMultiplier}`;
     const detail = active ? multiplier : `До ${multiplier}: ещё ${BALANCE.streakThreshold - streak}`;
@@ -103,20 +111,20 @@ export class GameUI {
     });
   }
 
-  showPhaseTransition(stage: 2 | 3, animate = true): void {
+  showPhaseTransition(stage: TransitionStage, animate = true): void {
     this.hidePhaseTransition();
     const w = this.layoutWidth, h = this.layoutHeight;
     const centerY = h / 2 + 28;
     const layer = this.scene.add.container(0, 0).setDepth(5);
     const wave = this.scene.add.graphics()
-      .lineStyle(5, COLORS.phase2Tint, 0.28)
+      .lineStyle(5, stage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint, 0.28)
       .strokeCircle(w / 2, centerY, Math.min(42, w * 0.09));
     const titleSize = Math.min(42, w * 0.09);
     const subtitleSize = Math.min(27, w * 0.06);
     const title = makeText(this.scene, w / 2, centerY - (stage === 3 ? 36 : 18), `ФАЗА ${stage}`, titleSize,
-      stage === 2 ? '#8a542f' : '#527d48', 0.5, 0.5);
+      stage === 2 ? '#8a542f' : STAGE_COLORS[stage], 0.5, 0.5);
     const subtitle = makeText(this.scene, w / 2, centerY + (stage === 3 ? 5 : 28),
-      stage === 2 ? 'Мыши наступают!' : 'Подкрепление в саду!',
+      STAGE_SUBTITLES[stage],
       subtitleSize, '#fff8e9', 0.5, 0.5)
       .setStroke('#654635', 5);
     const reminder = stage === 3
@@ -142,6 +150,23 @@ export class GameUI {
     this.scene.tweens.add({
       targets: wave, scale: 2.2, alpha: 0, duration: ANIMATION.phaseWave, ease: 'Sine.out',
     });
+    if (stage === 4) this.addPhaseCelebration(layer, w / 2, centerY);
+  }
+
+  private addPhaseCelebration(layer: Phaser.GameObjects.Container, x: number, y: number): void {
+    const starCount = 8;
+    for (let i = 0; i < starCount; i++) {
+      const angle = (i + 0.5) * Math.PI * 2 / starCount;
+      const dx = Math.cos(angle), dy = Math.sin(angle);
+      const star = this.scene.add.star(x + dx * 124, y + dy * 66, 4, 3, 9,
+        i % 2 === 0 ? COLORS.accent : COLORS.cream).setAlpha(0);
+      layer.addAt(star, 1);
+      this.scene.tweens.add({
+        targets: star, alpha: 0.85, x: star.x + dx * 36, y: star.y + dy * 24,
+        duration: ANIMATION.phaseText, hold: ANIMATION.phaseTextHold,
+        yoyo: true, ease: 'Sine.inOut',
+      });
+    }
   }
 
   hidePhaseTransition(): void {
@@ -280,10 +305,8 @@ export class GameUI {
       this.hearts.push(heart);
       this.hud.add(heart);
     }
-    this.stageText = makeText(this.scene, w / 2, 119,
-      `ФАЗА ${this.state.gameStage}`,
-      18, this.state.gameStage === 1 ? COLORS.muted :
-        this.state.gameStage === 2 ? '#9a5b29' : '#527d48', 0.5, 0.5);
+    this.stageText = makeText(this.scene, w / 2, 119, '', 18, COLORS.muted, 0.5, 0.5);
+    this.showStage(this.state.gameStage);
     this.streakText = makeText(this.scene, w - 16, 119, '', 16, COLORS.ink, 1, 0.5);
     this.hud.add([this.stageText, this.streakText]);
     this.drawHearts();

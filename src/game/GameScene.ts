@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GameState } from './GameState';
+import { GameState, type TransitionStage } from './GameState';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { BALANCE } from './settings';
@@ -33,7 +33,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.pausedTweens = [];
-    this.field = new MouseField(this, hole => this.handleHoleFreed(hole), () => this.handleMouseAppeared());
+    this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole), () => this.handleMouseAppeared());
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
@@ -187,27 +187,39 @@ export class GameScene extends Phaser.Scene {
     else this.ui.updateStreak();
   }
 
-  private startPhaseTransition(stage: 2 | 3): void {
-    if (!this.state.beginPhaseTransition()) return;
-    this.field.clearAll();
+  private startPhaseTransition(stage: TransitionStage): void {
+    this.field.clearMice();
+    this.field.setItemsVisible(false);
+    this.playPhaseTransition(stage);
+  }
+
+  private playPhaseTransition(stage: TransitionStage): void {
     this.field.setStage(stage);
     this.field.shake(BALANCE.phaseShakeMs, BALANCE.phaseShakeAmplitude);
     this.ui.showStage(stage);
     this.ui.showPhaseTransition(stage);
-    this.playPhaseSignal();
+    this.playPhaseSignal(stage);
     this.phaseTransitionTimer = this.time.delayedCall(BALANCE.phaseTransitionMs, () => {
-      if (!this.state.finishPhaseTransition()) return;
       this.phaseTransitionTimer = undefined;
+      const transition = this.state.finishPhaseTransition();
+      if (!transition) return;
       this.ui.hidePhaseTransition();
-      this.ui.updateStreak();
-      this.scheduleSpawns();
       if (stage === 3) {
         this.nextItem = {
           at: this.mouseAppearances + BALANCE.phase3FirstItemAppearances,
           guaranteedCheese: true,
         };
       }
-      this.spawnMouse();
+      if (transition.nextStage) {
+        this.playPhaseTransition(transition.nextStage);
+        return;
+      }
+
+      this.field.setItemsVisible(true);
+      this.ui.updateStreak();
+      this.tryPendingFieldActions();
+      this.scheduleSpawns();
+      if (stage !== 4) this.spawnMouse();
     });
   }
 
@@ -221,10 +233,10 @@ export class GameScene extends Phaser.Scene {
     this.tryOfferItem();
   }
 
-  private handleHoleFreed(hole: Hole): void {
-    if (this.state.phase !== 'playing' || this.state.gameStage !== 3 || this.state.lives === 0) return;
-    if (this.holeBlockPending) this.tryBlockHole(hole);
-    else this.tryOfferItem(hole);
+  private tryPendingFieldActions(freedHole?: Hole): void {
+    if (this.state.phase !== 'playing' || this.state.gameStage < 3 || this.state.lives === 0) return;
+    if (this.holeBlockPending) this.tryBlockHole(freedHole);
+    else this.tryOfferItem(freedHole);
   }
 
   private tryOfferItem(freedHole?: Hole): void {
@@ -320,19 +332,22 @@ export class GameScene extends Phaser.Scene {
     this.holeBlockPending = false;
   }
 
-  private playPhaseSignal(): void {
+  private playPhaseSignal(stage: TransitionStage): void {
     if (!BALANCE.phaseSignalSoundEnabled || typeof AudioContext === 'undefined') return;
     try {
       const context = this.phaseAudio ?? new AudioContext();
       this.phaseAudio = context;
       const play = () => {
-        if (context.state === 'closed') return;
+        if (this.phaseAudio !== context || context.state === 'closed' ||
+          !this.state.isTransitioning || this.state.gameStage !== stage) return;
         const now = context.currentTime;
         const oscillator = context.createOscillator();
         const volume = context.createGain();
         oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(460, now);
-        oscillator.frequency.linearRampToValueAtTime(680, now + BALANCE.phaseSignalMs / 2_000);
+        const mid = now + BALANCE.phaseSignalMs / 2_000;
+        oscillator.frequency.setValueAtTime(stage === 4 ? 523 : 460, now);
+        oscillator.frequency.linearRampToValueAtTime(stage === 4 ? 659 : 680, mid);
+        if (stage === 4) oscillator.frequency.linearRampToValueAtTime(784, now + BALANCE.phaseSignalMs / 1_000);
         volume.gain.setValueAtTime(0.0001, now);
         volume.gain.exponentialRampToValueAtTime(0.12, now + 0.025);
         volume.gain.exponentialRampToValueAtTime(0.0001, now + BALANCE.phaseSignalMs / 1_000);

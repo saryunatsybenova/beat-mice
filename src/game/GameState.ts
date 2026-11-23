@@ -1,19 +1,21 @@
 import { BALANCE } from './settings';
 
 export type GamePhase = 'menu' | 'playing' | 'transition' | 'paused' | 'gameover';
+export type GameStage = 1 | 2 | 3 | 4;
+export type TransitionStage = Exclude<GameStage, 1>;
 
 /** Состояние и правила партии. Не зависит от Phaser и не рисует интерфейс. */
 export class GameState {
   phase: GamePhase = 'menu';
-  gameStage: 1 | 2 | 3 = 1;
+  gameStage: GameStage = 1;
   score = 0;
   streak = 0;
   bestStreak = 0;
   lives: number = BALANCE.startLives;
   private pausedPhase: 'playing' | 'transition' = 'playing';
 
-  get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 3 ? 2 : this.gameStage].spawnIntervalMs; }
-  get mouseVisibleMs(): number { return BALANCE.phases[this.gameStage === 3 ? 2 : this.gameStage].mouseVisibleMs; }
+  get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].spawnIntervalMs; }
+  get mouseVisibleMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].mouseVisibleMs; }
   get scoreMultiplier(): number {
     return this.gameStage >= 2 && this.streak >= BALANCE.streakThreshold ? BALANCE.streakMultiplier : 1;
   }
@@ -44,23 +46,18 @@ export class GameState {
     this.phase = this.pausedPhase;
   }
 
-  beginPhaseTransition(): boolean {
-    if (this.phase !== 'playing' || this.gameStage === 1) return false;
-    this.phase = 'transition';
-    return true;
-  }
-
-  finishPhaseTransition(): boolean {
-    if (this.phase !== 'transition') return false;
-    this.phase = 'playing';
-    return true;
+  finishPhaseTransition(): { nextStage?: TransitionStage } | undefined {
+    if (this.phase !== 'transition') return;
+    const nextStage = this.advanceStage();
+    if (!nextStage) this.phase = 'playing';
+    return { nextStage };
   }
 
   get isTransitioning(): boolean {
     return this.phase === 'transition' || (this.phase === 'paused' && this.pausedPhase === 'transition');
   }
 
-  hit(basePoints: number = BALANCE.hitPoints): { points: number; enteredPhase?: 2 | 3 } | undefined {
+  hit(basePoints: number = BALANCE.hitPoints): { points: number; enteredPhase?: TransitionStage } | undefined {
     if (this.phase !== 'playing') return;
     const points = basePoints * this.scoreMultiplier;
     this.score += points;
@@ -68,15 +65,15 @@ export class GameState {
       this.streak++;
       this.bestStreak = Math.max(this.bestStreak, this.streak);
     }
-    if (this.gameStage === 1 && this.score >= BALANCE.phase2Score) {
-      this.gameStage = 2;
-      return { points, enteredPhase: 2 };
-    }
-    if (this.gameStage === 2 && this.score >= BALANCE.phase3Score) {
-      this.gameStage = 3;
-      return { points, enteredPhase: 3 };
-    }
-    return { points };
+    const enteredPhase = this.advanceStage();
+    if (enteredPhase) this.phase = 'transition';
+    return { points, enteredPhase };
+  }
+
+  private advanceStage(): TransitionStage | undefined {
+    if (this.gameStage === 1 && this.score >= BALANCE.phase2Score) return (this.gameStage = 2);
+    if (this.gameStage === 2 && this.score >= BALANCE.phase3Score) return (this.gameStage = 3);
+    if (this.gameStage === 3 && this.score >= BALANCE.phase4Score) return (this.gameStage = 4);
   }
 
   miss(): boolean {
