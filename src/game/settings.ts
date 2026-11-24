@@ -67,3 +67,17 @@ export const GARDEN_VISITORS = {
   hedgehog: { durationMs: 3_400, stepMs: 155 },
   cat: { durationMs: 6_500, stepMs: 340, glanceAt: [0.34, 0.71], glanceDuration: 0.13 },
 } as const;
+
+export const GARDEN_EVENTS = {
+  firstWaitAppearances: 15,
+  nextWaitAppearances: { min: 20, max: 30 },
+  durationAppearances: 10,
+  warningMs: 1_000,
+  maxSameInARow: 2,
+  goldRushMouseWeights: { normal: 35, decoy: 20, golden: 30, helmet: 15 },
+  normalGoldenLimit: 1,
+  goldRushGoldenLimit: 2,
+  invasionSpawnMultiplier: 0.75,
+  invasionSignalMs: 185,
+  invasionSignalFrequencies: [392, 523],
+} as const;

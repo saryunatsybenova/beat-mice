@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import { GameState, type TransitionStage } from './GameState';
 import { GardenVisitors } from './GardenVisitors';
+import { GardenEvents } from './GardenEvents';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { availableItems, drawUsefulItem } from './itemBalance';
-import { BALANCE } from './settings';
+import { BALANCE, GARDEN_EVENTS } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
 import type { MouseType } from './visuals';
@@ -13,11 +14,13 @@ import type { MouseType } from './visuals';
 export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
   private readonly progress = new ProgressStore();
+  private readonly gardenEvents = new GardenEvents();
   private field!: MouseField;
   private visitors!: GardenVisitors;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
+  private eventWarningTimer?: Phaser.Time.TimerEvent;
   private mouseAppearances = 0;
   private predictionsRemaining = 0;
   private cloverRemaining = 0;
@@ -25,7 +28,8 @@ export class GameScene extends Phaser.Scene {
   private nextItem?: { at: number; guaranteedCheese: boolean };
   private activeItem?: { hole: Hole; expiresAt: number };
   private holeBlock?: { holes: Hole[]; target: number; expiresAt?: number };
-  private phaseAudio?: AudioContext;
+  private signalAudio?: AudioContext;
+  private signalOscillator?: OscillatorNode;
   private bestScoreAtGameStart = 0;
   private hadRecordAtGameStart = false;
   private showedRecordNotification = false;
@@ -57,9 +61,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    if (this.state.phase === 'playing') {
-      this.visitors.update(this.state.gameStage, this.mouseAppearances, delta);
-    }
+    if (this.state.phase !== 'playing' || this.state.lives === 0) return;
+    if (this.gardenEvents.prepare(this.mouseAppearances)) this.showEventWarning();
+    this.visitors.update(this.state.gameStage, this.mouseAppearances, delta, !this.gardenEvents.current);
   }
 
   private layout(): void {
@@ -76,6 +80,7 @@ export class GameScene extends Phaser.Scene {
     this.ui.updatePredictions(this.predictionsRemaining);
     this.ui.updateClover(this.cloverRemaining);
     this.ui.updateFlower(this.flowerActive);
+    this.updateEventPresentation();
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -123,6 +128,7 @@ export class GameScene extends Phaser.Scene {
     if (phase !== 'playing' && phase !== 'transition') return;
     this.state.pause();
     this.time.paused = true;
+    if (phase === 'playing') this.stopSignal();
     this.pausedTweens = this.tweens.getTweens().filter(tween => !tween.isPaused());
     this.pausedTweens.forEach(tween => tween.pause());
     this.ui.showPause();
@@ -139,27 +145,42 @@ export class GameScene extends Phaser.Scene {
 
   private scheduleSpawns(): void {
     const warn = this.state.gameStage === 4 ? () => this.warnAboutMouse() : undefined;
-    this.field.scheduleSpawns(this.state.spawnIntervalMs, () => this.spawnMouse(), warn);
+    this.field.scheduleSpawns(this.spawnIntervalMs, () => this.spawnMouse(), warn);
+  }
+
+  private get activeGardenEvent() {
+    const event = this.gardenEvents.current;
+    return event?.status === 'active' ? event.type : undefined;
+  }
+
+  private get spawnIntervalMs(): number {
+    return this.state.spawnIntervalMs * (this.activeGardenEvent === 'invasion' ? GARDEN_EVENTS.invasionSpawnMultiplier : 1);
+  }
+
+  private get goldenLimit(): number {
+    return this.activeGardenEvent === 'goldRush' ? GARDEN_EVENTS.goldRushGoldenLimit : GARDEN_EVENTS.normalGoldenLimit;
   }
 
   private warnAboutMouse(): void {
     if (this.state.phase !== 'playing' || this.predictionsRemaining === 0) return;
-    this.field.reserveMouse(this.chooseMouseType(), this.cloverRemaining, this.flowerActive);
+    this.field.reserveMouse(this.chooseMouseType(), this.cloverRemaining, this.flowerActive, this.goldenLimit);
   }
 
   private spawnMouse(): void {
-    if (this.state.phase !== 'playing') return;
+    if (this.state.phase !== 'playing' || this.state.lives === 0) return;
     const miss = (hole: Hole) => this.handleMistake(hole, 'miss');
     const visibleMs = this.state.mouseVisibleMs;
     if (this.field.predictedType) this.field.spawnPredictedMouse(visibleMs, miss);
-    else this.field.spawnMouse(visibleMs, miss, this.chooseMouseType(), this.cloverRemaining, this.flowerActive);
+    else this.field.spawnMouse(visibleMs, miss, this.chooseMouseType(),
+      this.cloverRemaining, this.flowerActive, this.goldenLimit);
   }
 
   private chooseMouseType(): MouseType {
     if (this.state.gameStage < 2) return 'normal';
 
-    const roll = Math.random();
-    const { normal, decoy, golden, helmet } = BALANCE.phase2MouseChances;
+    const { normal, decoy, golden, helmet } = this.activeGardenEvent === 'goldRush'
+      ? GARDEN_EVENTS.goldRushMouseWeights : BALANCE.phase2MouseChances;
+    const roll = Math.random() * (normal + decoy + golden + helmet);
     if (roll < normal) return 'normal';
     if (roll < normal + decoy) return 'decoy';
     if (roll < normal + decoy + golden) return 'golden';
@@ -217,6 +238,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startPhaseTransition(stage: TransitionStage): void {
+    if (this.eventWarningTimer) this.eventWarningTimer.paused = true;
+    this.stopSignal();
+    this.updateEventPresentation();
     this.visitors.hide();
     this.field.clearMice();
     this.field.setItemsVisible(false);
@@ -234,7 +258,10 @@ export class GameScene extends Phaser.Scene {
       const transition = this.state.finishPhaseTransition();
       if (!transition) return;
       this.ui.hidePhaseTransition();
-      if (stage === 2) this.visitors.startCounting(this.mouseAppearances);
+      if (stage === 2) {
+        this.visitors.startCounting(this.mouseAppearances);
+        this.gardenEvents.startCounting(this.mouseAppearances);
+      }
       if (stage === 3) {
         this.nextItem = {
           at: this.mouseAppearances + BALANCE.phase3FirstItemAppearances,
@@ -247,6 +274,8 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.field.setItemsVisible(true);
+      if (this.eventWarningTimer) this.eventWarningTimer.paused = false;
+      this.updateEventPresentation();
       this.ui.updateStreak();
       this.tryPendingFieldActions();
       this.scheduleSpawns();
@@ -276,6 +305,33 @@ export class GameScene extends Phaser.Scene {
     this.advanceHoleBlock();
     this.advanceActiveItem();
     this.tryOfferItem();
+    const event = this.gardenEvents.current;
+    if (event?.status === 'active') {
+      this.gardenEvents.onMouseAppeared(this.mouseAppearances);
+      if (!this.gardenEvents.current && event.type === 'invasion') this.field.setSpawnInterval(this.spawnIntervalMs);
+      this.updateEventPresentation();
+    }
+  }
+
+  private showEventWarning(): void {
+    this.updateEventPresentation();
+    this.eventWarningTimer = this.time.delayedCall(GARDEN_EVENTS.warningMs, () => {
+      this.eventWarningTimer = undefined;
+      this.gardenEvents.activate();
+      this.updateEventPresentation();
+      if (this.activeGardenEvent === 'invasion') {
+        this.field.setSpawnInterval(this.spawnIntervalMs);
+        const event = this.gardenEvents.current;
+        this.playSignal(GARDEN_EVENTS.invasionSignalFrequencies, GARDEN_EVENTS.invasionSignalMs,
+          () => this.state.phase === 'playing' && this.gardenEvents.current === event);
+      }
+    });
+  }
+
+  private updateEventPresentation(): void {
+    const event = this.state.isTransitioning ? undefined : this.gardenEvents.current;
+    this.ui.updateGardenEvent(event);
+    this.field.setEventAccent(event?.status === 'active' ? event.type : undefined);
   }
 
   private tryPendingFieldActions(freedHole?: Hole): void {
@@ -414,6 +470,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private resetAppearanceEffects(): void {
+    this.eventWarningTimer?.remove();
+    this.eventWarningTimer = undefined;
+    this.gardenEvents.reset();
+    this.stopSignal();
     this.visitors.clear();
     this.mouseAppearances = 0;
     this.predictionsRemaining = 0;
@@ -425,28 +485,40 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playPhaseSignal(stage: TransitionStage): void {
+    this.playSignal(stage === 4 ? [523, 659, 784] : [460, 680], BALANCE.phaseSignalMs,
+      () => this.state.isTransitioning && this.state.gameStage === stage);
+  }
+
+  private playSignal(frequencies: readonly number[], durationMs: number, isCurrent: () => boolean): void {
     if (!BALANCE.phaseSignalSoundEnabled || typeof AudioContext === 'undefined') return;
     try {
-      const context = this.phaseAudio ?? new AudioContext();
-      this.phaseAudio = context;
+      const context = this.signalAudio ?? new AudioContext();
+      this.signalAudio = context;
       const play = () => {
-        if (this.phaseAudio !== context || context.state === 'closed' ||
-          !this.state.isTransitioning || this.state.gameStage !== stage) return;
+        if (this.signalAudio !== context || context.state === 'closed' || !isCurrent()) return;
+        this.stopSignal();
         const now = context.currentTime;
+        const duration = durationMs / 1_000;
         const oscillator = context.createOscillator();
         const volume = context.createGain();
         oscillator.type = 'sine';
-        const mid = now + BALANCE.phaseSignalMs / 2_000;
-        oscillator.frequency.setValueAtTime(stage === 4 ? 523 : 460, now);
-        oscillator.frequency.linearRampToValueAtTime(stage === 4 ? 659 : 680, mid);
-        if (stage === 4) oscillator.frequency.linearRampToValueAtTime(784, now + BALANCE.phaseSignalMs / 1_000);
+        oscillator.frequency.setValueAtTime(frequencies[0], now);
+        frequencies.slice(1).forEach((frequency, index) => {
+          oscillator.frequency.linearRampToValueAtTime(frequency, now + duration * (index + 1) / 2);
+        });
         volume.gain.setValueAtTime(0.0001, now);
         volume.gain.exponentialRampToValueAtTime(0.12, now + 0.025);
-        volume.gain.exponentialRampToValueAtTime(0.0001, now + BALANCE.phaseSignalMs / 1_000);
+        volume.gain.exponentialRampToValueAtTime(0.0001, now + duration);
         oscillator.connect(volume);
         volume.connect(context.destination);
+        oscillator.onended = () => {
+          oscillator.disconnect();
+          volume.disconnect();
+          if (this.signalOscillator === oscillator) this.signalOscillator = undefined;
+        };
         oscillator.start(now);
-        oscillator.stop(now + BALANCE.phaseSignalMs / 1_000);
+        oscillator.stop(now + duration);
+        this.signalOscillator = oscillator;
       };
       if (context.state === 'suspended') {
         void context.resume().then(play).catch(() => undefined);
@@ -454,8 +526,13 @@ export class GameScene extends Phaser.Scene {
         play();
       }
     } catch {
-      this.phaseAudio = undefined;
+      this.signalAudio = undefined;
     }
+  }
+
+  private stopSignal(): void {
+    this.signalOscillator?.stop();
+    this.signalOscillator = undefined;
   }
 
   private handleMistake(hole: Hole, kind: 'miss' | 'decoy' | 'empty'): void {
@@ -484,6 +561,7 @@ export class GameScene extends Phaser.Scene {
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
+    this.updateEventPresentation();
     this.updateBlockIndicators();
     this.ui.updateShield();
     this.ui.updateCoin();
@@ -502,8 +580,8 @@ export class GameScene extends Phaser.Scene {
     this.resetAppearanceEffects();
     this.state.clearShield();
     this.state.clearCoinBonus();
-    this.phaseAudio?.close().catch(() => undefined);
-    this.phaseAudio = undefined;
+    this.signalAudio?.close().catch(() => undefined);
+    this.signalAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
     this.input.keyboard?.off('keydown', this.handlePauseKey, this);
     this.scale.off('resize', this.layout, this);

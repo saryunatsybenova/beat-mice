@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import type { GameStage, GameState, TransitionStage } from '../GameState';
 import { BALANCE } from '../settings';
-import { COLORS, ANIMATION } from '../theme';
+import { COLORS, EVENT_ACCENTS, ANIMATION } from '../theme';
 import { makeCheeseCoin, makeMagicFlower, makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
+import type { GardenEvent, GardenEventType } from '../GardenEvents';
 
 interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; }
 
@@ -13,6 +14,10 @@ const STAGE_SUBTITLES = {
   2: 'Мыши наступают!',
   4: 'Сад полон сюрпризов!',
 } as const;
+const EVENT_LABELS: Record<GardenEventType, { title: string; rule: string }> = {
+  goldRush: { title: 'Золотая лихорадка', rule: 'больше золотых мышей!' },
+  invasion: { title: 'Нашествие', rule: 'мыши появляются чаще!' },
+};
 
 /** HUD, всплывающие подсказки и экраны. Не изменяет игровые правила. */
 export class GameUI {
@@ -20,6 +25,8 @@ export class GameUI {
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
+  private eventTitle!: Phaser.GameObjects.Text;
+  private eventRule!: Phaser.GameObjects.Text;
   private blockGroupText!: Phaser.GameObjects.Text;
   private predictionsText!: Phaser.GameObjects.Text;
   private cloverText!: Phaser.GameObjects.Text;
@@ -83,6 +90,17 @@ export class GameUI {
 
   showStage(stage: GameStage): void {
     this.stageText.setText(stage === 4 ? 'Фаза 4' : `ФАЗА ${stage}`).setColor(STAGE_COLORS[stage]);
+  }
+
+  updateGardenEvent(event?: Readonly<GardenEvent>): void {
+    this.eventTitle.setVisible(event !== undefined);
+    this.eventRule.setVisible(event?.status === 'warning');
+    if (!event) return;
+    const { title, rule } = EVENT_LABELS[event.type];
+    const color = EVENT_ACCENTS[event.type].textColor.toString(16).padStart(6, '0');
+    this.eventTitle.setText(event.status === 'active' ? `${title} · ${event.remaining}` : `${title} —`)
+      .setColor(`#${color}`);
+    if (event.status === 'warning') this.eventRule.setText(rule);
   }
 
   updateStreak(): void {
@@ -446,13 +464,17 @@ export class GameUI {
     this.stageText = makeText(this.scene, w / 2, 119, '', 18, COLORS.muted, 0.5, 0.5);
     this.showStage(this.state.gameStage);
     this.streakText = makeText(this.scene, w - 16, 119, '', 16, COLORS.ink, 1, 0.5);
+    this.eventTitle = makeText(this.scene, 16, 119, '', 16, COLORS.ink, 0, 0.5)
+      .setFontStyle('bold').setVisible(false);
+    this.eventRule = makeText(this.scene, 16, 131, '', 12, COLORS.ink, 0, 0.5).setVisible(false);
     this.blockGroupText = makeText(this.scene, w / 2, this.layoutHeight - 12, '', 16, COLORS.ink, 0.5, 0.5)
       .setVisible(false);
     this.predictionsText = makeText(this.scene, 16, this.layoutHeight - 12, '', 16, COLORS.ink, 0, 0.5)
       .setFontStyle('bold').setVisible(false);
     this.cloverText = makeText(this.scene, w - 16, this.layoutHeight - 12, '', 16, COLORS.ink, 1, 0.5)
       .setFontStyle('bold').setVisible(false);
-    this.hud.add([this.stageText, this.streakText, this.blockGroupText, this.predictionsText, this.cloverText]);
+    this.hud.add([this.stageText, this.streakText, this.eventTitle, this.eventRule,
+      this.blockGroupText, this.predictionsText, this.cloverText]);
     this.drawHearts();
     this.hud.setVisible(this.state.phase === 'playing' || this.state.phase === 'transition' ||
       this.state.phase === 'paused');

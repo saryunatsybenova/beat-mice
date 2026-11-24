@@ -36,12 +36,12 @@ export class GardenVisitors {
     this.position();
   }
 
-  update(stage: GameStage, appearances: number, delta: number): void {
+  update(stage: GameStage, appearances: number, delta: number, canEnter = true): void {
     const active = this.active;
     if (!active) {
       // Проверяем готовность в игровом кадре, чтобы переход фазы мог её отложить.
       const types = SETTINGS.typesByStage[stage];
-      if (types.length && this.dueAt !== undefined && appearances >= this.dueAt) {
+      if (canEnter && types.length && this.dueAt !== undefined && appearances >= this.dueAt) {
         this.enter(types[this.random.between(0, types.length - 1)]);
       }
       return;

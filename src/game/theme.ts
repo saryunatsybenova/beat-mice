@@ -17,3 +17,8 @@ export const COLORS = {
 
 export const CELL_SIZE = 200;
 export const HOLE_RADIUS = 58;
+
+export const EVENT_ACCENTS = {
+  goldRush: { rimColor: 0xffd051, textColor: 0x77501b },
+  invasion: { rimColor: 0xdd956c, textColor: 0x803f32 },
+} as const;

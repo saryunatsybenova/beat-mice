@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
-import { BALANCE } from './settings';
-import { COLORS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
+import { BALANCE, GARDEN_EVENTS } from './settings';
+import { COLORS, EVENT_ACCENTS, ANIMATION, CELL_SIZE, HOLE_RADIUS } from './theme';
 import { makeText, panel } from './ui/widgets';
 import { makeMouse, makePredictionMarker, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
 import type { GameStage } from './GameState';
+import type { GardenEventType } from './GardenEvents';
 
 export interface Hole {
   x: number;
@@ -27,6 +28,12 @@ interface MousePlan {
   convertedByClover: boolean;
 }
 
+interface SpawnSchedule {
+  intervalMs: number;
+  spawn: () => void;
+  warn?: () => void;
+}
+
 const specialSlot = (type: MouseType): MouseType => type === 'friendly' ? 'decoy' : type;
 
 const HOLE_SOIL_Y = 13;
@@ -46,13 +53,16 @@ export class MouseField {
   private ground?: Phaser.GameObjects.Container;
   private holeDecor?: Phaser.GameObjects.Container;
   private phaseTint?: Phaser.GameObjects.Graphics;
+  private eventRim?: Phaser.GameObjects.Graphics;
+  private eventAccent?: GardenEventType;
   private gameStage: GameStage = 1;
   private shakeTween?: Phaser.Tweens.Tween;
-  private readonly fadingSpecialTypes = new Set<MouseType>();
+  private readonly fadingSpecialTypes = new Map<MouseType, number>();
   private layoutWidth = 960;
   private layoutHeight = 640;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private warningTimer?: Phaser.Time.TimerEvent;
+  private spawnSchedule?: SpawnSchedule;
   private prediction?: MousePlan & { hole: Hole; marker: Phaser.GameObjects.Container };
 
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
@@ -78,11 +88,18 @@ export class MouseField {
       marker.setPosition(hole.x, this.predictionMarkerY(hole));
     }
     this.applyStageTint();
+    this.drawEventAccent();
   }
 
   setStage(stage: GameStage): void {
     this.gameStage = stage;
     this.applyStageTint();
+  }
+
+  setEventAccent(event?: GardenEventType): void {
+    if (this.eventAccent === event) return;
+    this.eventAccent = event;
+    this.drawEventAccent();
   }
 
   shake(durationMs: number, amplitude: number): void {
@@ -102,17 +119,32 @@ export class MouseField {
 
   scheduleSpawns(intervalMs: number, spawn: () => void, warn?: () => void): void {
     this.stopSpawns();
-    this.spawnTimer = this.scene.time.addEvent({ delay: intervalMs, loop: true, callback: spawn });
+    this.spawnSchedule = { intervalMs, spawn, warn };
+    this.scheduleSpawnCycle(this.spawnSchedule);
+  }
+
+  setSpawnInterval(intervalMs: number): void {
+    const schedule = this.spawnSchedule;
+    if (!schedule || schedule.intervalMs === intervalMs) return;
+    schedule.intervalMs = intervalMs;
+    // Уже обещанное очками появление завершает прежний цикл.
+    if (!this.spawnTimer || this.prediction) return;
+    this.cancelSpawnTimers();
+    this.scheduleSpawnCycle(schedule);
+  }
+
+  private scheduleSpawnCycle(schedule: SpawnSchedule): void {
+    const { intervalMs, spawn, warn } = schedule;
+    const timer = this.scene.time.delayedCall(intervalMs, () => {
+      this.cancelSpawnTimers();
+      spawn();
+      if (this.spawnSchedule === schedule) this.scheduleSpawnCycle(schedule);
+    });
+    this.spawnTimer = timer;
     if (!warn) return;
     const lead = intervalMs > BALANCE.glassesWarningMs ? BALANCE.glassesWarningMs : intervalMs / 2;
-    this.warningTimer = this.scene.time.addEvent({
-      delay: intervalMs, startAt: lead, loop: true,
-      callback: () => {
-        // Таймер появления обновляется первым. Если кадр перескочил оба срока,
-        // мышь этого интервала уже появилась, и запоздалое предупреждение пропускается.
-        const remaining = this.spawnTimer?.getRemaining();
-        if (remaining !== undefined && remaining > 0 && remaining <= lead) warn();
-      },
+    this.warningTimer = this.scene.time.delayedCall(intervalMs - lead, () => {
+      if (this.spawnTimer === timer) warn();
     });
   }
 
@@ -157,27 +189,33 @@ export class MouseField {
   }
 
   stopSpawns(): void {
+    this.spawnSchedule = undefined;
+    this.cancelSpawnTimers();
+    this.cancelPrediction();
+  }
+
+  private cancelSpawnTimers(): void {
     this.spawnTimer?.remove();
     this.spawnTimer = undefined;
     this.warningTimer?.remove();
     this.warningTimer = undefined;
-    this.cancelPrediction();
   }
 
-  hasMouseType(type: MouseType): boolean {
+  private countMouseType(type: MouseType): number {
     const slot = specialSlot(type);
-    return (this.prediction !== undefined && specialSlot(this.prediction.type) === slot) ||
-      this.fadingSpecialTypes.has(slot) ||
-      this.holes.some(hole => hole.mouseType !== null && specialSlot(hole.mouseType) === slot);
+    const reserved = this.prediction && specialSlot(this.prediction.type) === slot ? 1 : 0;
+    const visible = this.holes.filter(hole => hole.mouseType !== null && specialSlot(hole.mouseType) === slot).length;
+    return reserved + visible + (this.fadingSpecialTypes.get(slot) ?? 0);
   }
 
   get predictedType(): MouseType | undefined { return this.prediction?.type; }
 
-  reserveMouse(requested: MouseType, cloverRemaining = 0, flowerActive = false): void {
+  reserveMouse(requested: MouseType, cloverRemaining = 0, flowerActive = false,
+    goldenLimit: number = GARDEN_EVENTS.normalGoldenLimit): void {
     if (this.prediction) return;
     const hole = this.randomFreeHole(false);
     if (!hole) return;
-    const plan = this.planMouse(requested, cloverRemaining, flowerActive);
+    const plan = this.planMouse(requested, cloverRemaining, flowerActive, goldenLimit);
     const marker = makePredictionMarker(this.scene, hole.x, this.predictionMarkerY(hole),
       PREDICTION_MARKER_RADIUS, plan.type);
     this.prediction = { hole, marker, ...plan };
@@ -207,20 +245,21 @@ export class MouseField {
   }
 
   spawnMouse(baseVisibleMs: number, miss: (hole: Hole) => void, requested: MouseType = 'normal',
-    cloverRemaining = 0, flowerActive = false): void {
+    cloverRemaining = 0, flowerActive = false, goldenLimit: number = GARDEN_EVENTS.normalGoldenLimit): void {
     const hole = this.randomFreeHole();
     if (!hole) return;
-    const plan = this.planMouse(requested, cloverRemaining, flowerActive);
+    const plan = this.planMouse(requested, cloverRemaining, flowerActive, goldenLimit);
     // Обычный запасной выбор сохраняет прежний таймер, превращение использует время показа золотой.
     const visibleType = plan.convertedByClover ? plan.type : requested;
     this.placeMouse(hole, this.visibleTime(baseVisibleMs, visibleType), miss, plan, false);
   }
 
-  private planMouse(requested: MouseType, cloverRemaining: number, flowerActive: boolean): MousePlan {
-    const type = requested !== 'normal' && this.hasMouseType(requested) ? 'normal' : requested;
+  private planMouse(requested: MouseType, cloverRemaining: number, flowerActive: boolean, goldenLimit: number): MousePlan {
+    const limit = requested === 'golden' ? goldenLimit : 1;
+    const type = requested !== 'normal' && this.countMouseType(requested) >= limit ? 'normal' : requested;
     if (type === 'decoy' && flowerActive) return { type: 'friendly', convertedByClover: false };
     const reserved = this.prediction?.convertedByClover ? 1 : 0;
-    const convertedByClover = type === 'normal' && cloverRemaining > reserved && !this.hasMouseType('golden');
+    const convertedByClover = type === 'normal' && cloverRemaining > reserved && this.countMouseType('golden') < goldenLimit;
     return { type: convertedByClover ? 'golden' : type, convertedByClover };
   }
 
@@ -351,7 +390,7 @@ export class MouseField {
     hole.helmetRemoved = false;
     if (!mouse) return;
     const slot = mouseType === null || mouseType === 'normal' ? undefined : specialSlot(mouseType);
-    if (slot) this.fadingSpecialTypes.add(slot);
+    if (slot) this.fadingSpecialTypes.set(slot, (this.fadingSpecialTypes.get(slot) ?? 0) + 1);
     this.scene.tweens.killTweensOf(mouse);
 
     hole.fadingObjects.add(mouse);
@@ -364,7 +403,11 @@ export class MouseField {
       onComplete: () => {
         hole.fadingObjects.delete(mouse);
         mouse.destroy();
-        if (slot) this.fadingSpecialTypes.delete(slot);
+        if (slot) {
+          const remaining = (this.fadingSpecialTypes.get(slot) ?? 1) - 1;
+          if (remaining > 0) this.fadingSpecialTypes.set(slot, remaining);
+          else this.fadingSpecialTypes.delete(slot);
+        }
       },
     });
     this.onHoleFreed(hole);
@@ -410,6 +453,7 @@ export class MouseField {
     this.ground?.destroy();
     this.holeDecor?.destroy();
     this.phaseTint = undefined;
+    this.eventRim = undefined;
   }
 
   private createGround(): void {
@@ -420,6 +464,8 @@ export class MouseField {
     this.ground.add(panel(this.scene, x, y, width, height, radius, COLORS.grass));
     this.phaseTint = this.scene.add.graphics();
     this.ground.add(this.phaseTint);
+    this.eventRim = this.scene.add.graphics();
+    this.ground.add(this.eventRim);
     const grass = this.scene.add.graphics().lineStyle(2, COLORS.leaf, 0.3);
     for (let i = 0; i < 42; i++) {
       const x = 28 + ((i * 137) % (w - 56));
@@ -479,6 +525,15 @@ export class MouseField {
     this.phaseTint?.clear().fillStyle(this.gameStage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint)
       .fillRoundedRect(x, y, width, height, radius)
       .setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
+  }
+
+  private drawEventAccent(): void {
+    this.eventRim?.clear();
+    if (!this.eventRim || !this.eventAccent) return;
+    const { x, y, width, height, radius } = this.gardenBounds;
+    const { rimColor } = EVENT_ACCENTS[this.eventAccent];
+    this.eventRim.lineStyle(10, rimColor, 0.17).strokeRoundedRect(x + 6, y + 6, width - 12, height - 12, radius - 6);
+    this.eventRim.lineStyle(3, rimColor, 0.56).strokeRoundedRect(x + 3, y + 3, width - 6, height - 6, radius - 3);
   }
 
   private cancelShake(): void {
