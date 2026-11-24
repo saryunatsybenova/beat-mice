@@ -15,7 +15,7 @@ type Entry = { title: string; detail: string } & ({ mouse: MouseType } | { item:
 const sections: { title: string; entries: Entry[] }[] = [
   { title: 'Мыши', entries: [
     { mouse: 'normal', title: 'Обычная мышь', detail: `Базовая награда — ${points(BALANCE.hitPoints)}. Пропуск отнимает жизнь.` },
-    { mouse: 'decoy', title: 'Ложная мышь с цветком', detail: 'Нажатие отнимает жизнь. Можно пропустить.' },
+    { mouse: 'decoy', title: 'Ложная мышь с цветком', detail: 'У неё сердитая мордочка. Нажатие отнимает жизнь.' },
     { mouse: 'golden', title: 'Золотая мышь', detail: `Базовая награда — ${points(BALANCE.goldenHitPoints)}. Можно пропустить.` },
     { mouse: 'helmet', title: 'Мышь в каске', detail: `Сбей каску и поймай мышь. Базовая награда — ${points(BALANCE.helmetHitPoints)}.` },
     { mouse: 'friendly', title: 'Дружественная мышь', detail: `Возвращает ${count(BALANCE.friendlyMouseLifeGain, 'жизнь', 'жизни', 'жизней')} при нажатии.` },

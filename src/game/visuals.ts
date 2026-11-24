@@ -23,29 +23,62 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   mouse.add(scene.add.circle(29, -30, 14, earColor));
   mouse.add(scene.add.ellipse(0, -4, 80, 76, bodyColor).setStrokeStyle(2, 0xa59585));
   mouse.add(scene.add.ellipse(0, 12, 52, 32, COLORS.cream));
-  mouse.add(scene.add.circle(-14, -12, 6, COLORS.mouseEye));
-  mouse.add(scene.add.circle(14, -12, 6, COLORS.mouseEye));
-  mouse.add(scene.add.circle(-16, -14, 2, 0xffffff));
-  mouse.add(scene.add.circle(12, -14, 2, 0xffffff));
+  if (type !== 'decoy') {
+    mouse.add(scene.add.circle(-14, -12, 6, COLORS.mouseEye));
+    mouse.add(scene.add.circle(14, -12, 6, COLORS.mouseEye));
+    mouse.add(scene.add.circle(-16, -14, 2, 0xffffff));
+    mouse.add(scene.add.circle(12, -14, 2, 0xffffff));
+  }
   mouse.add(scene.add.ellipse(-25, 4, 13, 7, COLORS.mouseEar));
   mouse.add(scene.add.ellipse(25, 4, 13, 7, COLORS.mouseEar));
   mouse.add(scene.add.ellipse(0, 5, 13, 10, COLORS.pink));
   const whiskers = scene.add.graphics().lineStyle(2, COLORS.muted, 0.7);
   whiskers.lineBetween(-18, 8, -42, 3).lineBetween(-18, 13, -43, 16);
   whiskers.lineBetween(18, 8, 42, 3).lineBetween(18, 13, 43, 16);
-  whiskers.lineBetween(0, 10, 0, 17).lineBetween(-5, 17, 5, 17);
+  if (type === 'decoy' || type === 'friendly') whiskers.lineBetween(0, 10, 0, 14);
+  else whiskers.lineBetween(0, 10, 0, 17).lineBetween(-5, 17, 5, 17);
   mouse.add(whiskers);
   mouse.add(scene.add.ellipse(-24, 28, 20, 12, COLORS.cream));
   mouse.add(scene.add.ellipse(24, 28, 20, 12, COLORS.cream));
   if (look !== 'standard') mouse.add(drawLook(scene, type, look, bodyColor));
-  if (type === 'decoy') addFlower(mouse, scene);
+  if (type === 'decoy') {
+    mouse.add(makeDecoyExpression(scene));
+    addFlower(mouse, scene);
+  }
   if (type === 'friendly') {
+    const smile = scene.add.graphics().setName('friendly-smile').lineStyle(2.2, COLORS.mouseEye);
+    smile.beginPath().moveTo(-8, 15).lineTo(-5, 18).lineTo(0, 20).lineTo(5, 18).lineTo(8, 15).strokePath();
+    mouse.add(smile);
     mouse.add(makeMagicFlower(scene, 38, -39));
     mouse.add(makeFriendlyHeart(scene, 0, -48));
   }
   if (type === 'golden') addStar(mouse, scene);
   const helmet = type === 'helmet' ? addHelmet(mouse, scene) : undefined;
   return { object: mouse, helmet };
+}
+
+function makeDecoyExpression(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
+  const face = scene.add.graphics().setName('decoy-expression');
+  face.fillStyle(COLORS.mouseEye).fillEllipse(-14, -10, 12, 6).fillEllipse(14, -10, 12, 6);
+  face.fillStyle(COLORS.cream).fillCircle(-12, -10.5, 1.25).fillCircle(12, -10.5, 1.25);
+  face.lineStyle(3.2, COLORS.mouseEye).lineBetween(-23, -21, -7, -15).lineBetween(23, -21, 7, -15);
+  face.lineStyle(2.5, COLORS.mouseEye).beginPath().moveTo(-8, 21).lineTo(-5, 18)
+    .lineTo(0, 16).lineTo(5, 18).lineTo(8, 21).strokePath();
+  return face;
+}
+
+function makeNoTouch(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics {
+  const ink = 0x9f3745;
+  const sign = scene.add.graphics().setPosition(x, y).setName('no-touch');
+  sign.fillStyle(COLORS.cream).fillCircle(0, 0, 14)
+    .lineStyle(2.5, ink).strokeCircle(0, 0, 11);
+  sign.fillStyle(COLORS.ink).fillRoundedRect(-4, -2, 8, 9, 3)
+    .fillRoundedRect(-5, -5, 2.3, 7, 1).fillRoundedRect(-2, -8, 2.3, 8, 1)
+    .fillRoundedRect(1, -7, 2.3, 7, 1).fillRoundedRect(4, -5, 2.3, 7, 1)
+    .fillCircle(-5, 2, 2.5);
+  sign.lineStyle(4.6, COLORS.cream).lineBetween(-7.5, 7.5, 7.5, -7.5);
+  sign.lineStyle(2.9, ink).lineBetween(-7.5, 7.5, 7.5, -7.5);
+  return sign;
 }
 
 function drawLook(scene: Phaser.Scene, type: MouseType, look: Exclude<MouseLook, 'standard'>,
@@ -221,13 +254,7 @@ export function makePredictionMarker(scene: Phaser.Scene, x: number, y: number, 
       icon.fillStyle(COLORS.cream).fillCircle(-2.7, 1, 1).fillCircle(2.7, 1, 1);
       break;
     case 'decoy':
-      icon.fillStyle(COLORS.buttonPressed).fillEllipse(3, 6, 8, 4);
-      icon.fillStyle(0xad3f60);
-      for (let i = 0; i < 5; i++) {
-        const angle = i * Math.PI * 2 / 5;
-        icon.fillCircle(Math.cos(angle) * 4, Math.sin(angle) * 4 - 1, 3.5);
-      }
-      icon.fillStyle(0xffd766).fillCircle(0, -1, 3.5);
+      marker.add(makeNoTouch(scene, 0, 0).setScale(1.23));
       break;
     case 'friendly':
       marker.add(makeFriendlyHeart(scene, -6, -1).setScale(0.85));

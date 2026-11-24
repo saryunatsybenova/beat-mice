@@ -13,6 +13,8 @@ import { ProgressStore } from './ProgressStore';
 import type { PartyTask } from './personalTasks';
 import type { MouseType } from './visuals';
 
+const PAUSE_HEADER_HEIGHT = 56; // Кнопка 44 CSS-пикселя и два отступа по 6.
+
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
@@ -55,6 +57,7 @@ export class GameScene extends Phaser.Scene {
     this.decor = new GardenDecor(this);
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
+      pause: () => this.pauseGame(),
       resume: () => this.resumeGame(),
       restart: () => this.scene.restart({ startImmediately: true }),
       menu: () => this.scene.restart({ startImmediately: false }),
@@ -78,12 +81,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private layout(): void {
-    const portrait = this.scale.width < this.scale.height;
-    const compact = !portrait && this.scale.height < 480;
-    const width = portrait ? 480 : compact ? 800 : 960;
-    const height = portrait ? 760 : compact ? 500 : 640;
-    const zoom = Math.min(this.scale.width / width, this.scale.height / height);
-    this.cameras.main.setZoom(zoom).centerOn(width / 2, height / 2);
+    const { width, height, compact } = this.frameGame();
     this.field.resize(width, height);
     this.refreshGardenDecor();
     this.eventEffects.resize(this.field.gardenBounds);
@@ -95,6 +93,20 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateFlower(this.flowerActive);
     this.updateEventPresentation();
     if (this.state.phase !== 'gameover') this.updateTaskProgress();
+  }
+
+  private frameGame() {
+    const { width: screenWidth, height: screenHeight } = this.scale;
+    const portrait = screenWidth < screenHeight;
+    const compact = !portrait && screenHeight < 480;
+    const width = portrait ? 480 : compact ? 800 : 960;
+    const height = portrait ? 760 : compact ? 500 : 640;
+    const header = this.state.phase === 'menu' || this.state.phase === 'gameover' ? 0 : PAUSE_HEADER_HEIGHT;
+    const gameHeight = Math.max(1, screenHeight - header);
+    const zoom = Math.min(screenWidth / width, gameHeight / height);
+    this.cameras.main.setViewport(0, header, screenWidth, gameHeight).setZoom(zoom).centerOn(width / 2, height / 2);
+    this.ui.positionPauseButton((gameHeight - height * zoom) / 2 + 6, (screenWidth - width * zoom) / 2 + 12);
+    return { width, height, compact };
   }
 
   private refreshGardenDecor(): void {
@@ -138,6 +150,7 @@ export class GameScene extends Phaser.Scene {
     this.showedRecordNotification = false;
     this.field.setStage(1);
     this.state.start();
+    this.frameGame();
     this.ui.start();
     this.updateTaskProgress();
     this.scheduleSpawns();
@@ -611,6 +624,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTaskProgress();
     this.refreshGardenDecor();
     this.field.clearAll();
+    this.frameGame();
     this.ui.showGameOver(gardenRewards, completedTask ?? null);
   }
 

@@ -13,7 +13,10 @@ import type { ProgressStore } from '../ProgressStore';
 import type { PersonalTask } from '../personalTasks';
 import type { GardenEvent, GardenEventType } from '../GardenEvents';
 
-interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; refreshDecor: () => void; }
+interface UIActions {
+  start: () => void; pause: () => void; resume: () => void;
+  restart: () => void; menu: () => void; refreshDecor: () => void;
+}
 
 const STAGE_COLORS = { 1: '#7a705b', 2: '#9a5b29', 3: '#527d48', 4: '#79507f', 5: '#874a38' } as const;
 const STAGE_SUBTITLES = {
@@ -28,6 +31,7 @@ const EVENT_LABELS: Record<GardenEventType, { title: string; rule: string }> = {
 
 /** HUD, всплывающие подсказки и экраны. Не изменяет игровые правила. */
 export class GameUI {
+  private readonly pauseButton = document.createElement('button');
   private stageText!: Phaser.GameObjects.Text;
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
@@ -62,7 +66,28 @@ export class GameUI {
   private layoutHeight = 640;
 
   constructor(private readonly scene: Phaser.Scene, private readonly state: GameState,
-    private readonly actions: UIActions, private readonly progress: ProgressStore) {}
+    private readonly actions: UIActions, private readonly progress: ProgressStore) {
+    this.pauseButton.type = 'button';
+    this.pauseButton.className = 'game-pause';
+    this.pauseButton.setAttribute('aria-label', 'Пауза');
+    this.pauseButton.title = 'Пауза (P или Esc)';
+    this.pauseButton.hidden = true;
+    this.pauseButton.addEventListener('pointerdown', event => event.stopPropagation());
+    this.pauseButton.addEventListener('click', event => {
+      event.stopPropagation();
+      this.actions.pause();
+    });
+    this.scene.game.canvas.parentElement?.append(this.pauseButton);
+  }
+
+  positionPauseButton(top: number, right: number): void {
+    this.pauseButton.style.top = `${top}px`;
+    this.pauseButton.style.right = `${right}px`;
+  }
+
+  private syncPauseButton(): void {
+    this.pauseButton.hidden = this.state.phase !== 'playing' && this.state.phase !== 'transition';
+  }
 
   private getProgress() { return this.progress.snapshot; }
 
@@ -96,6 +121,7 @@ export class GameUI {
     this.uiLayer?.destroy();
     this.uiLayer = undefined;
     this.confirmingAbandon = false;
+    this.syncPauseButton();
   }
   start(): void { this.hideOverlay(); this.hud.setVisible(true); }
   updateScore(newRecord: boolean): void {
@@ -442,6 +468,7 @@ export class GameUI {
   }
 
   dispose(): void {
+    this.pauseButton.remove();
     this.legend?.destroy();
     this.garden?.destroy();
     this.collection?.destroy();
@@ -554,6 +581,7 @@ export class GameUI {
   }
 
   showMenu(): void {
+    this.syncPauseButton();
     const { w, top, layer } = this.createOverlay(510, 460);
     const center = w / 2;
     layer.add(this.scene.add.circle(center, top + 78, 53, COLORS.ground, 0.48)
@@ -594,6 +622,7 @@ export class GameUI {
   }
 
   showPause(): void {
+    this.syncPauseButton();
     const { w, top, layer } = this.createOverlay();
     layer.add(makeText(this.scene, w / 2, top + 155, 'ПАУЗА', 44, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 235,
@@ -635,6 +664,7 @@ export class GameUI {
   }
 
   showGameOver(rewards: readonly GardenRewardId[] = this.newRewards, task: PersonalTask | null = this.completedTask): void {
+    this.syncPauseButton();
     this.newRewards = rewards;
     this.completedTask = task;
     this.hideDecoyWarning();
@@ -699,7 +729,8 @@ export class GameUI {
   }
 
   private addResultButtons(layer: Phaser.GameObjects.Container, center: number, y: number): void {
-    layer.add(createButton(this.scene, center, y, 'Заново', this.actions.restart));
+    layer.add(createButton(this.scene, center - 102, y, 'Заново', this.actions.restart, false, 171));
+    layer.add(createButton(this.scene, center + 86, y, 'В меню', this.actions.menu, false, 188));
     layer.add(createButton(this.scene, center - 102, y + 61, 'Посмотреть сад', () => this.openGarden(true), true, 171));
     layer.add(createButton(this.scene, center + 86, y + 61, 'Посмотреть коллекцию', () => this.openCollection(true), true, 188));
   }
