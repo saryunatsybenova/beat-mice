@@ -2,12 +2,7 @@ import type Phaser from 'phaser';
 import { isCumulative, type MouseLook, type PersonalTask } from '../personalTasks';
 import type { ProgressStore } from '../ProgressStore';
 import { MOUSE_LOOKS, PERSONAL_TASKS } from '../settings';
-import { makeMouse } from '../visuals';
-
-const looks = Object.keys(MOUSE_LOOKS) as MouseLook[];
-const columns = 4;
-const rows = Math.ceil(looks.length / columns);
-const cell = 112;
+import { applyLookAtlas, lookIcon, looks } from './lookPreview';
 
 function requirement(task: PersonalTask): string {
   switch (task.metric) {
@@ -18,16 +13,6 @@ function requirement(task: PersonalTask): string {
     case 'streak': return `Дойди до серии ${task.goal} в одной партии.`;
     case 'score': return `Набери ${task.goal} очков в одной партии.`;
   }
-}
-
-function icon(look: MouseLook): HTMLElement {
-  const image = document.createElement('span');
-  image.className = 'legend-icon';
-  image.setAttribute('aria-hidden', 'true');
-  const i = looks.indexOf(look);
-  image.style.backgroundSize = `${columns * 100}% ${rows * 100}%`;
-  image.style.backgroundPosition = `${(i % columns) * 100 / (columns - 1)}% ${Math.floor(i / columns) * 100 / (rows - 1)}%`;
-  return image;
 }
 
 export class Collection {
@@ -58,7 +43,7 @@ export class Collection {
     tabs.forEach((tab, index) => tab.addEventListener('click', () => this.selectTab(index === 1)));
     for (const look of looks) this.addCard(look);
     document.body.append(this.dialog);
-    this.createAtlas(scene);
+    applyLookAtlas(scene, this.dialog);
   }
 
   open(fromResult: boolean): void {
@@ -96,7 +81,7 @@ export class Collection {
       this.renderCards();
     });
     copy.append(title, status);
-    row.append(icon(look), copy, button);
+    row.append(lookIcon(look), copy, button);
     this.list.append(row);
     this.cards.set(look, { status, button });
   }
@@ -129,26 +114,8 @@ export class Collection {
     meter.setAttribute('aria-label', 'Зафиксированный прогресс');
     const reward = document.createElement('div');
     reward.className = 'collection-reward';
-    reward.append(icon(task.reward), `Награда — «${MOUSE_LOOKS[task.reward]}»`);
+    reward.append(lookIcon(task.reward), `Награда — «${MOUSE_LOOKS[task.reward]}»`);
     this.taskPanel.append(detail, progress, meter, reward);
   }
 
-  private createAtlas(scene: Phaser.Scene): void {
-    const key = 'mouse-collection-atlas';
-    const atlas = scene.textures.addDynamicTexture(key, columns * cell, rows * cell);
-    if (!atlas) return;
-    const art = looks.map((look, index) => {
-      const x = (index % columns + 0.5) * cell;
-      const y = Math.floor(index / columns) * cell + 64;
-      const mouse = makeMouse(scene, x, y, 'normal', look).object.setScale(0.96);
-      mouse.removeFromDisplayList();
-      atlas.capture(mouse, {});
-      return mouse;
-    });
-    atlas.render().snapshot(image => {
-      if (image instanceof HTMLImageElement) this.dialog.style.setProperty('--legend-atlas', `url("${image.src}")`);
-    });
-    art.forEach(mouse => mouse.destroy());
-    scene.textures.remove(atlas);
-  }
 }

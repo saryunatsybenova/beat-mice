@@ -351,12 +351,21 @@ export class MouseField {
   }
 
   findMouse(x: number, y: number): Hole | undefined {
-    return this.holes.find(hole => hole.mouse !== null &&
-      Phaser.Math.Distance.Between(x, y, hole.x, hole.y) <=
-      (hole.mouseType === 'decoy' || hole.mouseType === 'friendly' ? BALANCE.falseMouseHitRadius :
+    let closest: Hole | undefined;
+    let closestDistance = Infinity;
+    for (const hole of this.holes) {
+      if (!hole.mouse) continue;
+      const distance = Phaser.Math.Distance.Between(x, y, hole.x, hole.y);
+      const radius = hole.mouseType === 'decoy' || hole.mouseType === 'friendly' ? BALANCE.falseMouseHitRadius :
         hole.mouseType === 'golden' ? BALANCE.goldenMouseHitRadius :
           hole.mouseType === 'helmet' && !hole.helmetRemoved ? BALANCE.helmetHitRadius :
-            BALANCE.mouseHitRadius));
+            BALANCE.mouseHitRadius;
+      if (distance <= radius && distance < closestDistance) {
+        closest = hole;
+        closestDistance = distance;
+      }
+    }
+    return closest;
   }
 
   findEmptyHole(x: number, y: number): Hole | undefined {
@@ -384,7 +393,7 @@ export class MouseField {
     });
   }
 
-  clearMouse(hole: Hole, hit = false): void {
+  clearMouse(hole: Hole, hit = false, animate = true): void {
     hole.hideTimer?.remove();
     hole.hideTimer = undefined;
     const mouse = hole.mouse;
@@ -396,9 +405,13 @@ export class MouseField {
     hole.helmet = null;
     hole.helmetRemoved = false;
     if (!mouse) return;
+    this.scene.tweens.killTweensOf(mouse);
+    if (!animate) {
+      mouse.destroy();
+      return;
+    }
     const slot = mouseType === null || mouseType === 'normal' ? undefined : specialSlot(mouseType);
     if (slot) this.fadingSpecialTypes.set(slot, (this.fadingSpecialTypes.get(slot) ?? 0) + 1);
-    this.scene.tweens.killTweensOf(mouse);
 
     hole.fadingObjects.add(mouse);
     this.scene.tweens.add({
@@ -434,37 +447,23 @@ export class MouseField {
   }
 
   clearAll(): void {
-    this.clearMice();
+    this.stopSpawns();
     for (const hole of this.holes) {
-      this.clearItem(hole, { animate: false });
+      this.clearMouse(hole, false, false);
+      this.clearItem(hole, { animate: false, notify: false });
       this.unblockHole(hole);
+      for (const object of hole.fadingObjects) {
+        this.scene.tweens.killTweensOf(object);
+        object.destroy();
+      }
+      hole.fadingObjects.clear();
     }
+    this.fadingSpecialTypes.clear();
   }
 
   dispose(): void {
     this.cancelShake();
-    this.stopSpawns();
-    for (const hole of this.holes) {
-      hole.hideTimer?.remove();
-      hole.helmetTween?.stop();
-      hole.item?.destroy();
-      this.unblockHole(hole);
-      if (hole.mouse) {
-        this.scene.tweens.killTweensOf(hole.mouse);
-        hole.mouse.destroy();
-      }
-      hole.hideTimer = undefined;
-      hole.mouse = null;
-      hole.mouseType = null;
-      hole.item = null;
-      hole.itemType = null;
-      hole.itemCounter = undefined;
-      hole.helmet = null;
-      hole.helmetTween = undefined;
-      hole.helmetRemoved = false;
-      hole.fadingObjects.clear();
-    }
-    this.fadingSpecialTypes.clear();
+    this.clearAll();
     this.ground?.destroy();
     this.holeDecor?.destroy();
     this.phaseTint = undefined;

@@ -88,6 +88,8 @@ export class ProgressStore {
       unlockedLooks: [...progress.unlockedLooks], completedTasks: [...progress.completedTasks] };
   }
 
+  get canSave(): boolean { return this.storageAvailable; }
+
   recordScore(score: number): void {
     if (this.progress.hasBestScore && score <= this.progress.bestScore) return;
 

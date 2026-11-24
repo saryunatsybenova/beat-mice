@@ -11,6 +11,9 @@ export class GameState {
   score = 0;
   streak = 0;
   bestStreak = 0;
+  private caughtMice = 0;
+  private successfulPresses = 0;
+  private mistakenPresses = 0;
   lives: number = BALANCE.startLives;
   private shieldCharges = 0;
   private coinActive = false;
@@ -27,6 +30,9 @@ export class GameState {
   }
   get hasShield(): boolean { return this.shieldCharges > 0; }
   get hasCoinBonus(): boolean { return this.coinActive; }
+  get roundStats() {
+    return { caughtMice: this.caughtMice, successfulPresses: this.successfulPresses, mistakenPresses: this.mistakenPresses };
+  }
 
   reset(): void {
     this.phase = 'menu';
@@ -34,6 +40,9 @@ export class GameState {
     this.score = 0;
     this.streak = 0;
     this.bestStreak = 0;
+    this.caughtMice = 0;
+    this.successfulPresses = 0;
+    this.mistakenPresses = 0;
     this.lives = BALANCE.startLives;
     this.clearShield();
     this.clearCoinBonus();
@@ -70,7 +79,9 @@ export class GameState {
 
   hit(basePoints: number = BALANCE.hitPoints):
     { points: number; coinBonus: number; enteredPhase?: TransitionStage } | undefined {
-    if (this.phase !== 'playing') return;
+    if (this.phase !== 'playing' || this.lives === 0) return;
+    this.successfulPresses++;
+    this.caughtMice++;
     const coinBonus = this.coinActive ? BALANCE.cheeseCoinBonus : 0;
     const points = basePoints * this.scoreMultiplier + coinBonus;
     this.clearCoinBonus();
@@ -82,6 +93,10 @@ export class GameState {
     const enteredPhase = this.advanceStage();
     if (enteredPhase) this.phase = 'transition';
     return { points, coinBonus, enteredPhase };
+  }
+
+  registerHelmetHit(): void {
+    if (this.phase === 'playing' && this.lives > 0) this.successfulPresses++;
   }
 
   private advanceStage(): TransitionStage | undefined {
@@ -104,8 +119,9 @@ export class GameState {
 
   clearCoinBonus(): void { this.coinActive = false; }
 
-  applyMistake(losesLife: boolean): { protected: boolean; brokeStreak: boolean } | undefined {
-    if (this.phase !== 'playing') return;
+  applyMistake(losesLife: boolean, pressed = !losesLife): { protected: boolean; brokeStreak: boolean } | undefined {
+    if (this.phase !== 'playing' || this.lives === 0) return;
+    if (pressed) this.mistakenPresses++;
     if (this.hasShield) {
       this.shieldCharges--;
       return { protected: true, brokeStreak: false };

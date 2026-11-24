@@ -12,6 +12,7 @@ import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
 import type { PartyTask } from './personalTasks';
 import type { MouseType } from './visuals';
+import { finishRound } from './roundResult';
 
 const PAUSE_HEADER_HEIGHT = 56; // Кнопка 44 CSS-пикселя и два отступа по 6.
 
@@ -67,6 +68,8 @@ export class GameScene extends Phaser.Scene {
     this.scale.on('resize', this.layout, this);
     this.input.on('pointerdown', this.handlePointerDown, this);
     this.input.keyboard?.on('keydown', this.handlePauseKey, this);
+    this.game.events.on(Phaser.Core.Events.HIDDEN, this.pauseGame, this);
+    this.game.events.on(Phaser.Core.Events.BLUR, this.pauseGame, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
     this.ui.showMenu();
     if (data.startImmediately) this.startGame();
@@ -154,7 +157,8 @@ export class GameScene extends Phaser.Scene {
     this.ui.start();
     this.updateTaskProgress();
     this.scheduleSpawns();
-    this.spawnMouse();
+    if (document.hidden) this.pauseGame();
+    else this.spawnMouse();
   }
 
   private pauseGame(): void {
@@ -162,14 +166,14 @@ export class GameScene extends Phaser.Scene {
     if (phase !== 'playing' && phase !== 'transition') return;
     this.state.pause();
     this.time.paused = true;
-    if (phase === 'playing') this.stopSignal();
+    this.stopSignal();
     this.pausedTweens = this.tweens.getTweens().filter(tween => !tween.isPaused());
     this.pausedTweens.forEach(tween => tween.pause());
     this.ui.showPause();
   }
 
   private resumeGame(): void {
-    if (this.state.phase !== 'paused') return;
+    if (this.state.phase !== 'paused' || document.hidden) return;
     this.state.resume();
     this.ui.hideOverlay();
     this.time.paused = false;
@@ -237,6 +241,7 @@ export class GameScene extends Phaser.Scene {
 
     if (hole.mouseType === 'helmet' && !hole.helmetRemoved) {
       this.field.removeHelmet(hole);
+      this.state.registerHelmetHit();
       this.ui.showHelmetHint(hole.x, hole.y);
       return;
     }
@@ -536,7 +541,7 @@ export class GameScene extends Phaser.Scene {
 
   private playPhaseSignal(stage: TransitionStage): void {
     this.playSignal(stage >= 4 ? [523, 659, 784] : [460, 680], BALANCE.phaseSignalMs,
-      () => this.state.isTransitioning && this.state.gameStage === stage);
+      () => this.state.phase === 'transition' && this.state.gameStage === stage);
   }
 
   private playSignal(frequencies: readonly number[], durationMs: number, isCurrent: () => boolean): void {
@@ -588,7 +593,7 @@ export class GameScene extends Phaser.Scene {
   private handleMistake(hole: Hole, kind: 'miss' | 'decoy' | 'empty'): void {
     const losesLife = kind !== 'empty';
     if (losesLife && hole.mouse === null) return;
-    const outcome = this.state.applyMistake(losesLife);
+    const outcome = this.state.applyMistake(losesLife, kind !== 'miss');
     if (!outcome) return;
 
     if (losesLife) this.field.clearMouse(hole, kind === 'decoy');
@@ -597,17 +602,23 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.state.lives === 0) {
+      this.endGame();
+      return;
+    }
+
     if (losesLife) {
       this.ui.showMiss();
       if (kind === 'decoy') this.ui.showDecoyWarning();
       this.ui.feedback(hole.x, hole.y, '−♥', COLORS.pink);
-      if (this.state.lives === 0) this.endGame();
     }
     if (outcome.brokeStreak) this.ui.showStreakNotice(false);
   }
 
   private endGame(): void {
-    if (!this.state.end()) return;
+    const result = finishRound(this.state, this.progress, this.partyTask,
+      this.hadRecordAtGameStart ? this.bestScoreAtGameStart : undefined);
+    if (!result) return;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
@@ -619,13 +630,12 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateClover(0);
     this.ui.updateFlower(false);
     this.ui.hidePhaseTransition();
-    const { gardenRewards, completedTask } = this.progress.addCompletedGame(this.state.score, this.partyTask, this.state.bestStreak);
     this.partyTask = undefined;
     this.updateTaskProgress();
     this.refreshGardenDecor();
     this.field.clearAll();
     this.frameGame();
-    this.ui.showGameOver(gardenRewards, completedTask ?? null);
+    this.ui.showGameOver(result);
   }
 
   private cleanup(): void {
@@ -639,6 +649,8 @@ export class GameScene extends Phaser.Scene {
     this.signalAudio = undefined;
     this.input.off('pointerdown', this.handlePointerDown, this);
     this.input.keyboard?.off('keydown', this.handlePauseKey, this);
+    this.game.events.off(Phaser.Core.Events.HIDDEN, this.pauseGame, this);
+    this.game.events.off(Phaser.Core.Events.BLUR, this.pauseGame, this);
     this.scale.off('resize', this.layout, this);
     this.time.paused = false;
     this.pausedTweens = [];
