@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import type { GameStage, GameState, TransitionStage } from '../GameState';
-import { BALANCE, GARDEN_REWARDS } from '../settings';
+import { BALANCE, GARDEN_REWARDS, MOUSE_LOOKS } from '../settings';
 import { COLORS, EVENT_ACCENTS, ANIMATION } from '../theme';
 import { makeCheeseCoin, makeMagicFlower, makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import { Legend } from './Legend';
 import { Garden } from './Garden';
+import { Collection } from './Collection';
 import { rewardTexture } from '../gardenArt';
 import type { GardenRewardId } from '../gardenProgress';
 import type { ProgressStore } from '../ProgressStore';
+import type { PersonalTask } from '../personalTasks';
 import type { GardenEvent, GardenEventType } from '../GardenEvents';
 
 interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; refreshDecor: () => void; }
@@ -30,6 +32,7 @@ export class GameUI {
   private scoreText!: Phaser.GameObjects.Text;
   private bestScoreText!: Phaser.GameObjects.Text;
   private streakText!: Phaser.GameObjects.Text;
+  private taskText!: Phaser.GameObjects.Text;
   private eventTitle!: Phaser.GameObjects.Text;
   private eventRule!: Phaser.GameObjects.Text;
   private blockGroupText!: Phaser.GameObjects.Text;
@@ -44,7 +47,10 @@ export class GameUI {
   private uiLayer?: Phaser.GameObjects.Container;
   private legend?: Legend;
   private garden?: Garden;
+  private collection?: Collection;
   private newRewards: readonly GardenRewardId[] = [];
+  private completedTask: PersonalTask | null = null;
+  private resultNoticeY = 0;
   private confirmingAbandon = false;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
@@ -113,6 +119,12 @@ export class GameUI {
     if (event.status === 'warning') this.eventRule.setText(rule);
   }
 
+  updateTask(task: PersonalTask | undefined, amount: number): void {
+    this.taskText.setText(task
+      ? amount >= task.goal ? 'Цель достигнута — завершите партию' : `${task.label} · ${amount}/${task.goal}`
+      : '').setVisible(task !== undefined && !this.topNotice);
+  }
+
   get gardenEventLabelPosition() {
     return { x: this.eventTitle.x + this.eventTitle.width / 2, y: this.eventTitle.y };
   }
@@ -161,7 +173,7 @@ export class GameUI {
     const color = activated ? '#386135' : COLORS.holeInner;
     const resultOverlay = this.state.phase === 'gameover' ? this.uiLayer : undefined;
     const notice = resultOverlay
-      ? makeText(this.scene, this.layoutWidth / 2, this.layoutHeight / 2 + (this.newRewards.length ? -178 : 151),
+      ? makeText(this.scene, this.layoutWidth / 2, this.resultNoticeY,
         label, 16, color, 0.5, 0.5)
       : makeText(this.scene, 16, 119, label, 16, color, 0, 0.5).setDepth(12);
     notice.setFontStyle('bold');
@@ -356,6 +368,7 @@ export class GameUI {
     const notice = makeText(this.scene, this.layoutWidth / 2, 9, label, 15, COLORS.ink, 0.5, 0.5)
       .setFontStyle('bold').setDepth(12);
     this.topNotice = notice;
+    this.taskText.setVisible(false);
     this.transientEffects.add(notice);
     this.scene.tweens.add({
       targets: notice, alpha: 0, delay: 900, duration: ANIMATION.feedback,
@@ -415,7 +428,10 @@ export class GameUI {
     if (this.decoyWarning === effect) this.decoyWarning = undefined;
     if (this.streakNotice === effect) this.streakNotice = undefined;
     if (this.bigCheeseNotice === effect) this.bigCheeseNotice = undefined;
-    if (this.topNotice === effect) this.topNotice = undefined;
+    if (this.topNotice === effect) {
+      this.topNotice = undefined;
+      this.taskText.setVisible(Boolean(this.taskText.text));
+    }
   }
 
   private hideDecoyWarning(): void {
@@ -428,6 +444,7 @@ export class GameUI {
   dispose(): void {
     this.legend?.destroy();
     this.garden?.destroy();
+    this.collection?.destroy();
     this.hideOverlay();
     this.hidePhaseTransition();
     this.hideDecoyWarning();
@@ -449,6 +466,8 @@ export class GameUI {
     const cardWidth = (w - 48) / labels.length;
     const cardCenter = (i: number) => 16 + i * (cardWidth + 8) + cardWidth / 2;
     this.hud = this.scene.add.container(0, 0).setDepth(10);
+    this.taskText = makeText(this.scene, w / 2, 9, '', 14, COLORS.ink, 0.5, 0.5);
+    this.hud.add(this.taskText);
     this.hearts = [];
     for (const [i, label] of labels.entries()) {
       this.hud.add(panel(this.scene, cardCenter(i) - cardWidth / 2, 18, cardWidth, 91, 20));
@@ -564,10 +583,12 @@ export class GameUI {
     }
 
     layer.add(createButton(this.scene, center, top + 379, 'Играть', this.actions.start));
-    layer.add(createButton(this.scene, center - 55, top + 441, 'Мыши и предметы',
-      () => (this.legend ??= new Legend(this.scene)).open(), true, 180));
-    layer.add(createButton(this.scene, center + 95, top + 441, 'Мой сад',
-      () => this.openGarden(false), true, 100));
+    layer.add(createButton(this.scene, center - 106, top + 441, 'Мыши и предметы',
+      () => (this.legend ??= new Legend(this.scene)).open(), true, 170));
+    layer.add(createButton(this.scene, center + 32, top + 441, 'Мой сад',
+      () => this.openGarden(false), true, 88));
+    layer.add(createButton(this.scene, center + 135, top + 441, 'Коллекция',
+      () => this.openCollection(false), true, 104));
     layer.add(makeText(this.scene, center, top + 484, 'Мышь / касание · P или Esc — пауза',
       16, COLORS.muted, 0.5, 0.5));
   }
@@ -605,15 +626,25 @@ export class GameUI {
     }
   }
 
-  showGameOver(rewards: readonly GardenRewardId[] = this.newRewards): void {
+  private openCollection(fromResult: boolean): void {
+    (this.collection ??= new Collection(this.scene, this.progress)).open(fromResult);
+    if (fromResult && this.completedTask) {
+      this.hideOverlay();
+      this.showGameOver(this.newRewards, null);
+    }
+  }
+
+  showGameOver(rewards: readonly GardenRewardId[] = this.newRewards, task: PersonalTask | null = this.completedTask): void {
     this.newRewards = rewards;
+    this.completedTask = task;
     this.hideDecoyWarning();
     this.clearTransientEffects();
-    if (rewards.length) {
+    if (rewards.length || task) {
       this.showRewardResult();
       return;
     }
     const { w, top, layer } = this.createOverlay(570);
+    this.resultNoticeY = top + 24;
     layer.add(makeMouse(this.scene, w / 2, top + 92).object);
     layer.add(makeText(this.scene, w / 2, top + 170, 'Игра окончена', 38, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 226, 'Мышки оказались проворнее!',
@@ -623,36 +654,54 @@ export class GameUI {
     layer.add(makeText(this.scene, w / 2, top + 378, `Максимальная серия: ${this.state.bestStreak}`,
       20, COLORS.ink, 0.5, 0.5));
     layer.add(makeText(this.scene, w / 2, top + 413, this.progressSummary(), 18, COLORS.muted, 0.5, 0.5));
-    layer.add(createButton(this.scene, w / 2, top + 468, 'Заново',
-      this.actions.restart));
-    layer.add(createButton(this.scene, w / 2, top + 532, 'Посмотреть сад', () => this.openGarden(true), true));
+    this.addResultButtons(layer, w / 2, top + 468);
   }
 
   private showRewardResult(): void {
-    const { w, top, layer } = this.createOverlay(570);
-    const center = w / 2;
-    layer.add(makeMouse(this.scene, center, top + 67).object.setScale(0.66));
-    layer.add(makeText(this.scene, center, top + 128, 'Игра окончена', 34, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, center, top + 166, 'СЧЁТ ЗА ПАРТИЮ', 15, COLORS.muted, 0.5, 0.5));
-    layer.add(makeText(this.scene, center, top + 201, String(this.state.score), 49, COLORS.buttonPressed, 0.5, 0.5));
-    layer.add(makeText(this.scene, center, top + 241, `Максимальная серия: ${this.state.bestStreak}`,
-      17, COLORS.ink, 0.5, 0.5));
-    layer.add(makeText(this.scene, center, top + 266, this.progressSummary(), 17, COLORS.muted, 0.5, 0.5));
-    layer.add(panel(this.scene, center - 199, top + 288, 398, 158, 18, 0xeaf0d3));
-    layer.add(makeText(this.scene, center, top + 307, 'Новый сюрприз!',
-      19, COLORS.buttonPressed, 0.5, 0.5).setFontStyle('bold'));
     const earned = GARDEN_REWARDS.filter(({ id }) => this.newRewards.includes(id));
+    const gardenHeight = earned.length > 3 ? 164 : earned.length ? 99 : 0;
+    const taskHeight = this.completedTask ? 71 : 0;
+    const buttonY = 289 + gardenHeight + taskHeight;
+    const { w, top, layer } = this.createOverlay(buttonY + 96);
+    const center = w / 2;
+    this.resultNoticeY = top + 16;
+    layer.add(makeMouse(this.scene, center, top + 62).object.setScale(0.62));
+    layer.add(makeText(this.scene, center, top + 108, 'Игра окончена', 32, COLORS.ink, 0.5, 0.5));
+    layer.add(makeText(this.scene, center, top + 138, 'СЧЁТ ЗА ПАРТИЮ', 15, COLORS.muted, 0.5, 0.5));
+    layer.add(makeText(this.scene, center, top + 171, String(this.state.score), 45, COLORS.buttonPressed, 0.5, 0.5));
+    layer.add(makeText(this.scene, center, top + 208, `Максимальная серия: ${this.state.bestStreak}`,
+      17, COLORS.ink, 0.5, 0.5));
+    layer.add(makeText(this.scene, center, top + 231, this.progressSummary(), 17, COLORS.muted, 0.5, 0.5));
+    if (earned.length) {
+      layer.add(panel(this.scene, center - 199, top + 248, 398, gardenHeight - 6, 18, 0xeaf0d3));
+      layer.add(makeText(this.scene, center, top + 264, 'Новый сюрприз!',
+        18, COLORS.buttonPressed, 0.5, 0.5).setFontStyle('bold'));
+    }
     for (const [index, { id, title }] of earned.entries()) {
       const row = Math.floor(index / 3);
       const columns = Math.min(3, earned.length - row * 3);
       const x = center + (index % 3 - (columns - 1) / 2) * 124;
-      const y = top + (earned.length <= 3 ? 362 : 334 + row * 50);
-      layer.add(this.scene.add.image(x, y, rewardTexture(this.scene, id)).setScale(earned.length <= 3 ? 0.64 : 0.43));
-      layer.add(makeText(this.scene, x, y + (earned.length <= 3 ? 32 : 19), title, earned.length <= 3 ? 13 : 12, COLORS.ink, 0.5)
-        .setLineSpacing(1).setWordWrapWidth(columns === 1 ? 200 : 122));
+      const y = top + 288 + row * 52;
+      layer.add(this.scene.add.image(x, y, rewardTexture(this.scene, id)).setScale(0.42));
+      layer.add(makeText(this.scene, x, y + 18, title, 12, COLORS.ink, 0.5)
+        .setLineSpacing(0).setWordWrapWidth(columns === 1 ? 220 : 124));
     }
-    layer.add(createButton(this.scene, center, top + 489, 'Заново', this.actions.restart));
-    layer.add(createButton(this.scene, center, top + 546, 'Посмотреть сад', () => this.openGarden(true), true));
+    if (this.completedTask) {
+      const { title, reward } = this.completedTask;
+      const y = top + 248 + gardenHeight;
+      layer.add(panel(this.scene, center - 199, y, 398, 65, 18, 0xf4e9cc));
+      layer.add(makeMouse(this.scene, center - 146, y + 35, 'normal', reward).object.setScale(0.53));
+      layer.add(makeText(this.scene, center - 103, y + 12, 'Задание выполнено', 17, COLORS.ink).setFontStyle('bold'));
+      layer.add(makeText(this.scene, center - 103, y + 36, title, 15, COLORS.ink));
+      layer.add(makeText(this.scene, center + 191, y + 37, MOUSE_LOOKS[reward], 15, COLORS.buttonPressed, 1));
+    }
+    this.addResultButtons(layer, center, top + buttonY);
+  }
+
+  private addResultButtons(layer: Phaser.GameObjects.Container, center: number, y: number): void {
+    layer.add(createButton(this.scene, center, y, 'Заново', this.actions.restart));
+    layer.add(createButton(this.scene, center - 102, y + 61, 'Посмотреть сад', () => this.openGarden(true), true, 171));
+    layer.add(createButton(this.scene, center + 86, y + 61, 'Посмотреть коллекцию', () => this.openCollection(true), true, 188));
   }
 
   private progressSummary(): string {

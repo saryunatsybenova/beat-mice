@@ -50,6 +50,25 @@ export const BALANCE = {
   },
 } as const;
 
+export const MOUSE_LOOKS = {
+  standard: 'Стандартный',
+  spotted: 'Пятнистые',
+  freckles: 'Веснушки',
+  rosy: 'Румяные',
+  striped: 'Полосатые',
+  fluffy: 'Пушистые',
+  starry: 'Звёздные',
+} as const;
+
+export const PERSONAL_TASKS = [
+  { id: 'firstCatches', title: 'Первые успехи', metric: 'normal', goal: 30, label: 'Обычные мыши', reward: 'spotted' },
+  { id: 'goldenCatch', title: 'Золотой улов', metric: 'golden', goal: 10, label: 'Золотые мыши', reward: 'freckles' },
+  { id: 'steadyAim', title: 'Меткий садовник', metric: 'streak', goal: 10, label: 'Серия', reward: 'rosy' },
+  { id: 'hardNut', title: 'Крепкий орешек', metric: 'helmet', goal: 15, label: 'Мыши в касках', reward: 'striped' },
+  { id: 'gardenHelp', title: 'Помощь сада', metric: 'items', goal: 12, label: 'Полезные предметы', reward: 'fluffy' },
+  { id: 'gardenMaster', title: 'Мастер сада', metric: 'score', goal: 200, label: 'Очки за партию', reward: 'starry' },
+] as const;
+
 export const GARDEN_REWARDS = [
   { id: 'flowerbed', title: 'Клумба с цветами', threshold: 100 },
   { id: 'bench', title: 'Скамейка', threshold: 250 },

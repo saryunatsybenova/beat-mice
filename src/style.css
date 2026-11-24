@@ -85,6 +85,14 @@ canvas { display: block; touch-action: none; }
   background: #edf0df var(--legend-atlas, none) no-repeat;
 }
 .legend-list p { margin: 3px 0 0; color: #685e4d; font-size: 0.875rem; line-height: 1.35; }
+.collection [hidden] { display: none; }
+.collection .legend-list li { grid-template-columns: 56px minmax(0, 1fr) auto; }
+.collection .legend-list li button { padding: 4px 8px; font-size: 0.83rem; }
+.collection .legend-scroll { padding-bottom: 16px; }
+.collection h3 { margin: 8px 0; }
+.collection p { margin-block: 7px; }
+.collection progress { width: 100%; height: 12px; accent-color: #759b5a; }
+.collection-reward { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .garden-dialog {
   width: min(940px, calc(100% - 24px));
   max-height: min(760px, calc(100dvh - 24px));

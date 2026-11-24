@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from './theme';
+import type { MouseLook } from './personalTasks';
 
 export type MouseType = 'normal' | 'decoy' | 'friendly' | 'golden' | 'helmet';
 export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover' | 'coin' | 'flower';
@@ -10,7 +11,7 @@ export interface MouseAppearance {
 }
 
 export function makeMouse(scene: Phaser.Scene, x: number, y: number,
-  type: MouseType = 'normal'): MouseAppearance {
+  type: MouseType = 'normal', look: MouseLook = 'standard'): MouseAppearance {
   const mouse = scene.add.container(x, y);
   const isGolden = type === 'golden';
   const bodyColor = isGolden ? 0xe9bd4c : COLORS.mouseBody;
@@ -36,6 +37,7 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   mouse.add(whiskers);
   mouse.add(scene.add.ellipse(-24, 28, 20, 12, COLORS.cream));
   mouse.add(scene.add.ellipse(24, 28, 20, 12, COLORS.cream));
+  if (look !== 'standard') mouse.add(drawLook(scene, type, look, bodyColor));
   if (type === 'decoy') addFlower(mouse, scene);
   if (type === 'friendly') {
     mouse.add(makeMagicFlower(scene, 38, -39));
@@ -44,6 +46,60 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   if (type === 'golden') addStar(mouse, scene);
   const helmet = type === 'helmet' ? addHelmet(mouse, scene) : undefined;
   return { object: mouse, helmet };
+}
+
+function drawLook(scene: Phaser.Scene, type: MouseType, look: Exclude<MouseLook, 'standard'>,
+  fur: number): Phaser.GameObjects.Graphics {
+  const art = scene.add.graphics().setName('mouse-look');
+  const marking = type === 'golden' ? 0xa96e33 : 0x896d5c;
+  switch (look) {
+    case 'spotted':
+      art.fillStyle(marking, 0.7).fillCircle(-25, -25, 5).fillCircle(-17, -30, 3)
+        .fillCircle(25, -23, 4).fillEllipse(31, -18, 6, 8);
+      break;
+    case 'freckles':
+      art.fillStyle(marking, 0.95);
+      for (const side of [-1, 1]) {
+        art.fillCircle(side * 12, 3, 1.7).fillCircle(side * 17, 1, 1.35).fillCircle(side * 19, 6, 1.4);
+      }
+      break;
+    case 'rosy':
+      art.fillStyle(0xe88c9e, 0.82).fillEllipse(-26, 6, 18, 11).fillEllipse(26, 6, 18, 11);
+      art.fillStyle(0xf5b7bf, 0.82).fillEllipse(-28, 4, 8, 4).fillEllipse(28, 4, 8, 4);
+      break;
+    case 'striped':
+      art.lineStyle(2.8, marking, 0.82);
+      for (const direction of [-1, 1]) {
+        art.lineBetween(direction * 32, -21, direction * 24, -19);
+        art.lineBetween(direction * 35, -16, direction * 27, -14);
+        art.lineBetween(direction * 35, -11, direction * 30, -9);
+      }
+      break;
+    case 'fluffy':
+      art.fillStyle(fur).fillTriangle(-30, 4, -40, 10, -30, 13).fillTriangle(30, 4, 40, 10, 30, 13)
+        .fillTriangle(-32, 10, -38, 17, -28, 17).fillTriangle(32, 10, 38, 17, 28, 17);
+      art.lineStyle(1.3, marking, 0.46);
+      for (const direction of [-1, 1]) {
+        art.lineBetween(direction * 39, 10, direction * 31, 13)
+          .lineBetween(direction * 37, 17, direction * 29, 17);
+      }
+      if (type === 'normal' || type === 'decoy' || type === 'golden') {
+        art.fillTriangle(-12, -36, -8, -49, 2, -38).fillTriangle(-7, -39, 6, -50, 9, -36);
+      }
+      break;
+    case 'starry':
+      art.fillStyle(marking, 0.82);
+      for (const [x, y, radius] of [[-25, -26, 5], [23, -25, 4], [31, -17, 3]]) {
+        const points = Array.from({ length: 8 }, (_, index) => {
+          const angle = index * Math.PI / 4;
+          const distance = radius * (index % 2 === 0 ? 1 : 0.38);
+          return new Phaser.Math.Vector2(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance);
+        });
+        art.fillPoints(points, true);
+      }
+      break;
+  }
+  return art;
 }
 
 export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,

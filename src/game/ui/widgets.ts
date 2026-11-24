@@ -41,6 +41,7 @@ export function createButton(scene: Phaser.Scene, x: number, y: number, label: s
   const button = scene.add.container(x, y);
   const background = panel(scene, -width / 2, -height / 2, width, height, radius, base);
   const text = makeText(scene, 0, 0, label, secondary ? 20 : 28, secondary ? COLORS.ink : COLORS.cream, 0.5, 0.5);
+  text.setScale(Math.min(1, (width - 12) / text.width));
   const target = scene.add.zone(0, 0, width, height).setInteractive({ useHandCursor: true });
   let pressed = false;
   const paint = (color: number, scale: number) => {

@@ -10,12 +10,14 @@ import { availableItems, drawUsefulItem } from './itemBalance';
 import { BALANCE, GARDEN_EVENTS } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
+import type { PartyTask } from './personalTasks';
 import type { MouseType } from './visuals';
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
   private readonly progress = new ProgressStore();
+  private partyTask?: PartyTask;
   private readonly gardenEvents = new GardenEvents();
   private field!: MouseField;
   private visitors!: GardenVisitors;
@@ -92,6 +94,7 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateClover(this.cloverRemaining);
     this.ui.updateFlower(this.flowerActive);
     this.updateEventPresentation();
+    if (this.state.phase !== 'gameover') this.updateTaskProgress();
   }
 
   private refreshGardenDecor(): void {
@@ -128,12 +131,15 @@ export class GameScene extends Phaser.Scene {
   private startGame(): void {
     if (this.state.phase !== 'menu') return;
     const progress = this.progress.snapshot;
+    this.partyTask = this.progress.startTask();
+    this.field.mouseLook = progress.selectedLook;
     this.bestScoreAtGameStart = progress.bestScore;
     this.hadRecordAtGameStart = progress.hasBestScore;
     this.showedRecordNotification = false;
     this.field.setStage(1);
     this.state.start();
     this.ui.start();
+    this.updateTaskProgress();
     this.scheduleSpawns();
     this.spawnMouse();
   }
@@ -237,6 +243,9 @@ export class GameScene extends Phaser.Scene {
     if (hole.mouse === null) return;
     const reward = this.state.hit(basePoints);
     if (!reward) return;
+    const type = hole.mouseType;
+    if (type === 'normal' || type === 'golden' || type === 'helmet') this.partyTask?.count(type);
+    this.updateTaskProgress();
     this.progress.recordScore(this.state.score);
     const newRecord = this.hadRecordAtGameStart && !this.showedRecordNotification &&
       this.state.score > this.bestScoreAtGameStart;
@@ -410,6 +419,8 @@ export class GameScene extends Phaser.Scene {
   private collectUsefulItem(hole: Hole): void {
     const type = hole.itemType;
     if (!type) return;
+    this.partyTask?.count('items');
+    this.updateTaskProgress();
     this.activeItem = undefined;
     this.nextItem = undefined;
     if (type === 'cheese' || type === 'bigCheese') {
@@ -442,6 +453,10 @@ export class GameScene extends Phaser.Scene {
       this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife(this.mouseAppearances));
     }
     this.scheduleNextItem();
+  }
+
+  private updateTaskProgress(): void {
+    this.ui.updateTask(this.partyTask?.task, this.partyTask?.preview(this.state.score, this.state.bestStreak) ?? 0);
   }
 
   private applyCheese(target: number): void {
@@ -591,13 +606,16 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateClover(0);
     this.ui.updateFlower(false);
     this.ui.hidePhaseTransition();
-    const rewards = this.progress.addCompletedGame(this.state.score);
+    const { gardenRewards, completedTask } = this.progress.addCompletedGame(this.state.score, this.partyTask, this.state.bestStreak);
+    this.partyTask = undefined;
+    this.updateTaskProgress();
     this.refreshGardenDecor();
     this.field.clearAll();
-    this.ui.showGameOver(rewards);
+    this.ui.showGameOver(gardenRewards, completedTask ?? null);
   }
 
   private cleanup(): void {
+    this.partyTask = undefined;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();

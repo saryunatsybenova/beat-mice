@@ -25,10 +25,10 @@ test('rewards unlock on or above every threshold using completed games only', ()
       store.recordScore(reward.threshold + 100);
       assert.deepEqual(store.snapshot.unlockedRewards, []);
       assert.equal(store.snapshot.totalPoints, 0);
-      const opened = store.addCompletedGame(reward.threshold + offset);
+      const { gardenRewards: opened } = store.addCompletedGame(reward.threshold + offset);
       assert.deepEqual(opened, GARDEN_REWARDS.slice(0, index + Number(offset >= 0)).map(({ id }) => id));
       assert.deepEqual(store.snapshot.hiddenRewards, []);
-      assert.deepEqual(store.addCompletedGame(0), []);
+      assert.deepEqual(store.addCompletedGame(0).gardenRewards, []);
     }
   }
 });
@@ -36,7 +36,7 @@ test('rewards unlock on or above every threshold using completed games only', ()
 test('migration opens all earned rewards without adding points and persists one garden notice', () => {
   const saved = useStorage({ version: 1, bestScore: 208, totalPoints: 350, hasBestScore: true });
   let store = new ProgressStore();
-  assert.equal(saved().version, 2);
+  assert.equal(saved().version, 3);
   assert.equal(store.snapshot.bestScore, 208);
   assert.equal(store.snapshot.totalPoints, 350);
   assert.deepEqual(store.snapshot.unlockedRewards, ['flowerbed', 'bench']);
@@ -48,7 +48,7 @@ test('migration opens all earned rewards without adding points and persists one 
   store = new ProgressStore();
   assert.deepEqual(store.snapshot.hiddenRewards, ['flowerbed']);
   assert.deepEqual(store.snapshot.unlockedRewards, ['flowerbed', 'bench']);
-  assert.deepEqual(store.addCompletedGame(150), ['fountain']);
+  assert.deepEqual(store.addCompletedGame(150).gardenRewards, ['fountain']);
   assert.deepEqual(store.snapshot.hiddenRewards, ['flowerbed']);
   assert.deepEqual(store.takeGardenNotice(), []);
 });
@@ -90,7 +90,7 @@ test('disabled or failing storage falls back to live progress', () => {
     });
     const store = new ProgressStore();
     store.recordScore(500);
-    assert.deepEqual(store.addCompletedGame(500), ['flowerbed', 'bench', 'fountain']);
+    assert.deepEqual(store.addCompletedGame(500).gardenRewards, ['flowerbed', 'bench', 'fountain']);
     store.setRewardVisible('fountain', false);
     assert.equal(store.snapshot.bestScore, 500);
     assert.equal(store.snapshot.totalPoints, 500);

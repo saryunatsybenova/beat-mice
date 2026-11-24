@@ -1,10 +1,11 @@
-import { GARDEN_REWARDS } from './settings';
+import { GARDEN_REWARDS, PERSONAL_TASKS } from './settings';
+import { isCumulative, PartyTask, readCollection, type CollectionProgress, type MouseLook, type PersonalTask } from './personalTasks';
 import type { GardenRewardId } from './gardenProgress';
 
 const STORAGE_KEY = 'whack-a-mouse.progress';
-const FORMAT_VERSION = 2;
+const FORMAT_VERSION = 3;
 
-export interface PlayerProgress {
+export interface PlayerProgress extends CollectionProgress {
   bestScore: number;
   totalPoints: number;
   hasBestScore: boolean;
@@ -30,6 +31,7 @@ function readRewards(value: unknown): GardenRewardId[] {
 export class ProgressStore {
   private progress: PlayerProgress = {
     bestScore: 0, totalPoints: 0, hasBestScore: false, unlockedRewards: [], hiddenRewards: [],
+    ...readCollection(),
   };
   private pendingGardenNotice: GardenRewardId[] = [];
   private storageAvailable = true;
@@ -58,7 +60,7 @@ export class ProgressStore {
       return;
     }
     const stored = data as Record<string, unknown>;
-    if (stored.version !== 1 && stored.version !== FORMAT_VERSION) {
+    if (stored.version !== 1 && stored.version !== 2 && stored.version !== FORMAT_VERSION) {
       // Не перезаписываем сохранение более новой версии.
       this.storageAvailable = false;
       return;
@@ -71,6 +73,7 @@ export class ProgressStore {
       hasBestScore: typeof stored.hasBestScore === 'boolean' ? stored.hasBestScore : bestScore > 0,
       unlockedRewards,
       hiddenRewards: readRewards(stored.hiddenRewards).filter(id => unlockedRewards.includes(id)),
+      ...readCollection(stored.version === FORMAT_VERSION ? stored : undefined),
     };
     const repaired = this.unlockEarnedRewards();
     this.pendingGardenNotice = [
@@ -80,7 +83,9 @@ export class ProgressStore {
   }
 
   get snapshot(): Readonly<PlayerProgress> {
-    return { ...this.progress, unlockedRewards: [...this.progress.unlockedRewards], hiddenRewards: [...this.progress.hiddenRewards] };
+    const progress = this.progress;
+    return { ...progress, unlockedRewards: [...progress.unlockedRewards], hiddenRewards: [...progress.hiddenRewards],
+      unlockedLooks: [...progress.unlockedLooks], completedTasks: [...progress.completedTasks] };
   }
 
   recordScore(score: number): void {
@@ -91,11 +96,40 @@ export class ProgressStore {
     this.save();
   }
 
-  addCompletedGame(score: number): GardenRewardId[] {
+  startTask(): PartyTask {
+    const task = PERSONAL_TASKS.find(({ id }) => id === this.progress.activeTask);
+    return new PartyTask(task, this.progress.taskProgress);
+  }
+
+  addCompletedGame(score: number, party?: PartyTask, bestStreak = 0): {
+    gardenRewards: GardenRewardId[]; completedTask?: PersonalTask;
+  } {
     this.progress.totalPoints += score;
-    const opened = this.unlockEarnedRewards();
+    const gardenRewards = this.unlockEarnedRewards();
+    const result = party?.finish(score, bestStreak);
+    const task = PERSONAL_TASKS.find(({ id }) => id === result?.id && id === this.progress.activeTask);
+    let completedTask: PersonalTask | undefined;
+    if (task && result) {
+      const cumulative = isCumulative(task);
+      const amount = cumulative ? this.progress.taskProgress + result.amount : result.amount;
+      if (amount >= task.goal) {
+        this.progress.completedTasks = [...this.progress.completedTasks, task.id];
+        this.progress.unlockedLooks = [...new Set([...this.progress.unlockedLooks, task.reward])];
+        this.progress.activeTask = PERSONAL_TASKS.find(({ id }) => !this.progress.completedTasks.includes(id))?.id ?? null;
+        this.progress.taskProgress = 0;
+        completedTask = task;
+      } else if (cumulative) {
+        this.progress.taskProgress = amount;
+      }
+    }
     this.save();
-    return opened;
+    return { gardenRewards, completedTask };
+  }
+
+  selectLook(look: MouseLook): void {
+    if (!this.progress.unlockedLooks.includes(look)) return;
+    this.progress.selectedLook = look;
+    this.save();
   }
 
   setRewardVisible(id: GardenRewardId, visible: boolean): void {

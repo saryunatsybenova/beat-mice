@@ -5,6 +5,7 @@ import { makeText, panel } from './ui/widgets';
 import { makeMouse, makePredictionMarker, makeUsefulItem, type MouseType, type UsefulItemType } from './visuals';
 import type { GameStage } from './GameState';
 import type { GardenEventType } from './GardenEvents';
+import type { MouseLook } from './personalTasks';
 
 export interface Hole {
   x: number;
@@ -49,6 +50,7 @@ const PREDICTION_MARKER_RADIUS = 22;
 
 /** Поле, мыши и их таймеры. Счёт и жизни меняет только GameState. */
 export class MouseField {
+  mouseLook: MouseLook = 'standard';
   readonly holes: Hole[] = [];
   private ground?: Phaser.GameObjects.Container;
   private holeDecor?: Phaser.GameObjects.Container;
@@ -274,7 +276,7 @@ export class MouseField {
 
   private placeMouse(hole: Hole, visibleMs: number, miss: (hole: Hole) => void, { type, convertedByClover }: MousePlan,
     predicted: boolean): void {
-    const appearance = makeMouse(this.scene, hole.x, hole.y, type);
+    const appearance = makeMouse(this.scene, hole.x, hole.y, type, this.mouseLook);
     const mouse = appearance.object;
     mouse.setScale(0.2).setAlpha(0);
     this.scene.tweens.add({ targets: mouse, scale: 1, alpha: 1, duration: ANIMATION.appear, ease: 'Back.out' });
