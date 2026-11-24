@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GameState, type TransitionStage } from './GameState';
 import { GardenVisitors } from './GardenVisitors';
 import { GardenEvents } from './GardenEvents';
+import { GardenEventEffects } from './GardenEventEffects';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { availableItems, drawUsefulItem } from './itemBalance';
@@ -17,6 +18,7 @@ export class GameScene extends Phaser.Scene {
   private readonly gardenEvents = new GardenEvents();
   private field!: MouseField;
   private visitors!: GardenVisitors;
+  private eventEffects!: GardenEventEffects;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
@@ -45,6 +47,7 @@ export class GameScene extends Phaser.Scene {
     this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole),
       (hole, predicted, convertedByClover) => this.handleMouseAppeared(hole, predicted, convertedByClover));
     this.visitors = new GardenVisitors(this);
+    this.eventEffects = new GardenEventEffects(this);
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
@@ -64,6 +67,7 @@ export class GameScene extends Phaser.Scene {
     if (this.state.phase !== 'playing' || this.state.lives === 0) return;
     if (this.gardenEvents.prepare(this.mouseAppearances)) this.showEventWarning();
     this.visitors.update(this.state.gameStage, this.mouseAppearances, delta, !this.gardenEvents.current);
+    this.eventEffects.update(delta, this.activeGardenEvent);
   }
 
   private layout(): void {
@@ -74,6 +78,7 @@ export class GameScene extends Phaser.Scene {
     const zoom = Math.min(this.scale.width / width, this.scale.height / height);
     this.cameras.main.setZoom(zoom).centerOn(width / 2, height / 2);
     this.field.resize(width, height);
+    this.eventEffects.resize(this.field.gardenBounds);
     this.visitors.resize(this.field.gardenBounds, this.field.holes[0].y, this.field.holes[BALANCE.gridCols].y, compact);
     this.ui.resize(width, height);
     this.updateBlockIndicators();
@@ -241,6 +246,7 @@ export class GameScene extends Phaser.Scene {
     if (this.eventWarningTimer) this.eventWarningTimer.paused = true;
     this.stopSignal();
     this.updateEventPresentation();
+    this.eventEffects.setSuspended(true);
     this.visitors.hide();
     this.field.clearMice();
     this.field.setItemsVisible(false);
@@ -276,6 +282,7 @@ export class GameScene extends Phaser.Scene {
       this.field.setItemsVisible(true);
       if (this.eventWarningTimer) this.eventWarningTimer.paused = false;
       this.updateEventPresentation();
+      this.eventEffects.setSuspended(false);
       this.ui.updateStreak();
       this.tryPendingFieldActions();
       this.scheduleSpawns();
@@ -307,6 +314,7 @@ export class GameScene extends Phaser.Scene {
     this.tryOfferItem();
     const event = this.gardenEvents.current;
     if (event?.status === 'active') {
+      this.eventEffects.onMouseAppeared(event.type, hole);
       this.gardenEvents.onMouseAppeared(this.mouseAppearances);
       if (!this.gardenEvents.current && event.type === 'invasion') this.field.setSpawnInterval(this.spawnIntervalMs);
       this.updateEventPresentation();
@@ -319,9 +327,12 @@ export class GameScene extends Phaser.Scene {
       this.eventWarningTimer = undefined;
       this.gardenEvents.activate();
       this.updateEventPresentation();
-      if (this.activeGardenEvent === 'invasion') {
+      const event = this.gardenEvents.current;
+      if (event?.status === 'active') {
+        this.eventEffects.start(event.type, this.ui.gardenEventLabelPosition, this.field.holes);
+      }
+      if (event?.type === 'invasion') {
         this.field.setSpawnInterval(this.spawnIntervalMs);
-        const event = this.gardenEvents.current;
         this.playSignal(GARDEN_EVENTS.invasionSignalFrequencies, GARDEN_EVENTS.invasionSignalMs,
           () => this.state.phase === 'playing' && this.gardenEvents.current === event);
       }
@@ -473,6 +484,7 @@ export class GameScene extends Phaser.Scene {
     this.eventWarningTimer?.remove();
     this.eventWarningTimer = undefined;
     this.gardenEvents.reset();
+    this.eventEffects.clear();
     this.stopSignal();
     this.visitors.clear();
     this.mouseAppearances = 0;

@@ -77,7 +77,20 @@ export const GARDEN_EVENTS = {
   goldRushMouseWeights: { normal: 35, decoy: 20, golden: 30, helmet: 15 },
   normalGoldenLimit: 1,
   goldRushGoldenLimit: 2,
-  invasionSpawnMultiplier: 0.75,
+  invasionSpawnMultiplier: 0.5,
   invasionSignalMs: 185,
   invasionSignalFrequencies: [392, 523],
+} as const;
+
+export const GARDEN_EVENT_EFFECTS = {
+  maxSprites: 36,
+  goldRush: {
+    intro: { count: 13, durationMs: 680, spreadX: 86, spreadY: 41 },
+    edge: { minIntervalMs: 850, maxIntervalMs: 1_450, durationMs: 570, inset: 17 },
+    mouse: { durationMs: 480, sideOffset: 49 },
+  },
+  invasion: {
+    dust: { perHole: 2, onMouse: 2, durationMs: 460, offsetX: 37, offsetY: 22 },
+    tracks: { perSide: 7, stepDelayMs: 85, durationMs: 580, inset: 18, spacing: 27 },
+  },
 } as const;

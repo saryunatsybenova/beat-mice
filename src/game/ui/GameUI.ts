@@ -103,6 +103,10 @@ export class GameUI {
     if (event.status === 'warning') this.eventRule.setText(rule);
   }
 
+  get gardenEventLabelPosition() {
+    return { x: this.eventTitle.x + this.eventTitle.width / 2, y: this.eventTitle.y };
+  }
+
   updateStreak(): void {
     const { gameStage, streak, isTransitioning } = this.state;
     this.streakText.setVisible(gameStage >= 3 || (gameStage === 2 && !isTransitioning));
