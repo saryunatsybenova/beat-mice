@@ -50,3 +50,20 @@ export const BALANCE = {
     2: { spawnIntervalMs: 1_100, mouseVisibleMs: 1_000 },
   },
 } as const;
+
+export const GARDEN_VISITORS = {
+  firstWaitAppearances: 6,
+  nextWaitAppearances: { min: 12, max: 18 },
+  typesByStage: {
+    1: [],
+    2: ['butterfly'],
+    3: ['butterfly', 'hedgehog', 'cat'],
+    4: ['butterfly', 'hedgehog', 'cat'],
+  },
+  compactWalkerScale: 0.8,
+  bottomInset: 13,
+  entryMargin: 66,
+  butterfly: { durationMs: 4_500, waveHeight: 9, waves: 2.5, flapMs: 180 },
+  hedgehog: { durationMs: 3_400, stepMs: 155 },
+  cat: { durationMs: 6_500, stepMs: 340, glanceAt: [0.34, 0.71], glanceDuration: 0.13 },
+} as const;

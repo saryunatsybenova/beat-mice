@@ -58,6 +58,13 @@ export class MouseField {
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
     private readonly onMouseAppeared: (hole: Hole, predicted: boolean, convertedByClover: boolean) => void) {}
 
+  get gardenBounds() {
+    return {
+      x: FIELD_INSET, y: FIELD_TOP, width: this.layoutWidth - 2 * FIELD_INSET,
+      height: this.layoutHeight - FIELD_TOP - FIELD_BOTTOM, radius: FIELD_RADIUS,
+    };
+  }
+
   resize(width: number, height: number): void {
     this.cancelShake();
     this.layoutWidth = width;
@@ -407,10 +414,10 @@ export class MouseField {
 
   private createGround(): void {
     const w = this.layoutWidth, h = this.layoutHeight;
+    const { x, y, width, height, radius } = this.gardenBounds;
     this.ground = this.scene.add.container(0, 0).setDepth(-10);
     this.ground.add(this.scene.add.rectangle(w / 2, h / 2, w * 3, h * 3, COLORS.ground));
-    this.ground.add(panel(this.scene, FIELD_INSET, FIELD_TOP, w - 2 * FIELD_INSET,
-      h - FIELD_TOP - FIELD_BOTTOM, FIELD_RADIUS, COLORS.grass));
+    this.ground.add(panel(this.scene, x, y, width, height, radius, COLORS.grass));
     this.phaseTint = this.scene.add.graphics();
     this.ground.add(this.phaseTint);
     const grass = this.scene.add.graphics().lineStyle(2, COLORS.leaf, 0.3);
@@ -468,9 +475,9 @@ export class MouseField {
   }
 
   private applyStageTint(): void {
+    const { x, y, width, height, radius } = this.gardenBounds;
     this.phaseTint?.clear().fillStyle(this.gameStage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint)
-      .fillRoundedRect(FIELD_INSET, FIELD_TOP, this.layoutWidth - 2 * FIELD_INSET,
-        this.layoutHeight - FIELD_TOP - FIELD_BOTTOM, FIELD_RADIUS)
+      .fillRoundedRect(x, y, width, height, radius)
       .setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
   }
 

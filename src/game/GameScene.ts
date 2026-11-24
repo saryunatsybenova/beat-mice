@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GameState, type TransitionStage } from './GameState';
+import { GardenVisitors } from './GardenVisitors';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { availableItems, drawUsefulItem } from './itemBalance';
@@ -13,6 +14,7 @@ export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
   private readonly progress = new ProgressStore();
   private field!: MouseField;
+  private visitors!: GardenVisitors;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
@@ -38,6 +40,7 @@ export class GameScene extends Phaser.Scene {
     this.pausedTweens = [];
     this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole),
       (hole, predicted, convertedByClover) => this.handleMouseAppeared(hole, predicted, convertedByClover));
+    this.visitors = new GardenVisitors(this);
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
@@ -53,6 +56,12 @@ export class GameScene extends Phaser.Scene {
     if (data.startImmediately) this.startGame();
   }
 
+  update(_time: number, delta: number): void {
+    if (this.state.phase === 'playing') {
+      this.visitors.update(this.state.gameStage, this.mouseAppearances, delta);
+    }
+  }
+
   private layout(): void {
     const portrait = this.scale.width < this.scale.height;
     const compact = !portrait && this.scale.height < 480;
@@ -61,6 +70,7 @@ export class GameScene extends Phaser.Scene {
     const zoom = Math.min(this.scale.width / width, this.scale.height / height);
     this.cameras.main.setZoom(zoom).centerOn(width / 2, height / 2);
     this.field.resize(width, height);
+    this.visitors.resize(this.field.gardenBounds, this.field.holes[0].y, this.field.holes[BALANCE.gridCols].y, compact);
     this.ui.resize(width, height);
     this.updateBlockIndicators();
     this.ui.updatePredictions(this.predictionsRemaining);
@@ -207,6 +217,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startPhaseTransition(stage: TransitionStage): void {
+    this.visitors.hide();
     this.field.clearMice();
     this.field.setItemsVisible(false);
     this.playPhaseTransition(stage);
@@ -223,6 +234,7 @@ export class GameScene extends Phaser.Scene {
       const transition = this.state.finishPhaseTransition();
       if (!transition) return;
       this.ui.hidePhaseTransition();
+      if (stage === 2) this.visitors.startCounting(this.mouseAppearances);
       if (stage === 3) {
         this.nextItem = {
           at: this.mouseAppearances + BALANCE.phase3FirstItemAppearances,
@@ -402,6 +414,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private resetAppearanceEffects(): void {
+    this.visitors.clear();
     this.mouseAppearances = 0;
     this.predictionsRemaining = 0;
     this.cloverRemaining = 0;
