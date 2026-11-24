@@ -111,9 +111,9 @@ export class GameState {
     return { protected: false, brokeStreak };
   }
 
-  restoreLife(): boolean {
+  restoreLife(amount = 1): boolean {
     if (this.phase !== 'playing' || this.lives >= BALANCE.startLives) return false;
-    this.lives++;
+    this.lives = Math.min(BALANCE.startLives, this.lives + amount);
     return true;
   }
 

@@ -27,6 +27,8 @@ interface MousePlan {
   convertedByClover: boolean;
 }
 
+const specialSlot = (type: MouseType): MouseType => type === 'friendly' ? 'decoy' : type;
+
 const HOLE_SOIL_Y = 13;
 const HOLE_SOIL_WIDTH = HOLE_RADIUS * 2 + 8;
 const HOLE_SOIL_HEIGHT = 66;
@@ -156,17 +158,19 @@ export class MouseField {
   }
 
   hasMouseType(type: MouseType): boolean {
-    return this.prediction?.type === type || this.fadingSpecialTypes.has(type) ||
-      this.holes.some(hole => hole.mouseType === type);
+    const slot = specialSlot(type);
+    return (this.prediction !== undefined && specialSlot(this.prediction.type) === slot) ||
+      this.fadingSpecialTypes.has(slot) ||
+      this.holes.some(hole => hole.mouseType !== null && specialSlot(hole.mouseType) === slot);
   }
 
   get predictedType(): MouseType | undefined { return this.prediction?.type; }
 
-  reserveMouse(requested: MouseType, cloverRemaining = 0): void {
+  reserveMouse(requested: MouseType, cloverRemaining = 0, flowerActive = false): void {
     if (this.prediction) return;
     const hole = this.randomFreeHole(false);
     if (!hole) return;
-    const plan = this.planMouse(requested, cloverRemaining);
+    const plan = this.planMouse(requested, cloverRemaining, flowerActive);
     const marker = makePredictionMarker(this.scene, hole.x, this.predictionMarkerY(hole),
       PREDICTION_MARKER_RADIUS, plan.type);
     this.prediction = { hole, marker, ...plan };
@@ -196,17 +200,18 @@ export class MouseField {
   }
 
   spawnMouse(baseVisibleMs: number, miss: (hole: Hole) => void, requested: MouseType = 'normal',
-    cloverRemaining = 0): void {
+    cloverRemaining = 0, flowerActive = false): void {
     const hole = this.randomFreeHole();
     if (!hole) return;
-    const plan = this.planMouse(requested, cloverRemaining);
+    const plan = this.planMouse(requested, cloverRemaining, flowerActive);
     // Обычный запасной выбор сохраняет прежний таймер, превращение использует время показа золотой.
     const visibleType = plan.convertedByClover ? plan.type : requested;
     this.placeMouse(hole, this.visibleTime(baseVisibleMs, visibleType), miss, plan, false);
   }
 
-  private planMouse(requested: MouseType, cloverRemaining: number): MousePlan {
+  private planMouse(requested: MouseType, cloverRemaining: number, flowerActive: boolean): MousePlan {
     const type = requested !== 'normal' && this.hasMouseType(requested) ? 'normal' : requested;
+    if (type === 'decoy' && flowerActive) return { type: 'friendly', convertedByClover: false };
     const reserved = this.prediction?.convertedByClover ? 1 : 0;
     const convertedByClover = type === 'normal' && cloverRemaining > reserved && !this.hasMouseType('golden');
     return { type: convertedByClover ? 'golden' : type, convertedByClover };
@@ -228,7 +233,7 @@ export class MouseField {
     hole.helmetRemoved = false;
     hole.hideTimer = this.scene.time.delayedCall(visibleMs, () => {
       if (hole.mouse !== mouse) return;
-      if (type === 'decoy' || type === 'golden') this.clearMouse(hole);
+      if (type === 'decoy' || type === 'friendly' || type === 'golden') this.clearMouse(hole);
       else miss(hole);
     });
     this.onMouseAppeared(hole, predicted, convertedByClover);
@@ -293,7 +298,7 @@ export class MouseField {
   findMouse(x: number, y: number): Hole | undefined {
     return this.holes.find(hole => hole.mouse !== null &&
       Phaser.Math.Distance.Between(x, y, hole.x, hole.y) <=
-      (hole.mouseType === 'decoy' ? BALANCE.falseMouseHitRadius :
+      (hole.mouseType === 'decoy' || hole.mouseType === 'friendly' ? BALANCE.falseMouseHitRadius :
         hole.mouseType === 'golden' ? BALANCE.goldenMouseHitRadius :
           hole.mouseType === 'helmet' && !hole.helmetRemoved ? BALANCE.helmetHitRadius :
             BALANCE.mouseHitRadius));
@@ -336,7 +341,8 @@ export class MouseField {
     hole.helmet = null;
     hole.helmetRemoved = false;
     if (!mouse) return;
-    if (mouseType !== null && mouseType !== 'normal') this.fadingSpecialTypes.add(mouseType);
+    const slot = mouseType === null || mouseType === 'normal' ? undefined : specialSlot(mouseType);
+    if (slot) this.fadingSpecialTypes.add(slot);
     this.scene.tweens.killTweensOf(mouse);
 
     hole.fadingObjects.add(mouse);
@@ -349,7 +355,7 @@ export class MouseField {
       onComplete: () => {
         hole.fadingObjects.delete(mouse);
         mouse.destroy();
-        if (mouseType !== null) this.fadingSpecialTypes.delete(mouseType);
+        if (slot) this.fadingSpecialTypes.delete(slot);
       },
     });
     this.onHoleFreed(hole);

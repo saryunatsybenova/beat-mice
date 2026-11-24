@@ -18,6 +18,7 @@ export class GameScene extends Phaser.Scene {
   private mouseAppearances = 0;
   private predictionsRemaining = 0;
   private cloverRemaining = 0;
+  private flowerActive = false;
   private nextItem?: { at: number; guaranteedCheese: boolean };
   private activeItem?: { hole: Hole; expiresAt: number };
   private holeBlock?: { holes: Hole[]; target: number; expiresAt?: number };
@@ -63,6 +64,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBlockIndicators();
     this.ui.updatePredictions(this.predictionsRemaining);
     this.ui.updateClover(this.cloverRemaining);
+    this.ui.updateFlower(this.flowerActive);
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -131,7 +133,7 @@ export class GameScene extends Phaser.Scene {
 
   private warnAboutMouse(): void {
     if (this.state.phase !== 'playing' || this.predictionsRemaining === 0) return;
-    this.field.reserveMouse(this.chooseMouseType(), this.cloverRemaining);
+    this.field.reserveMouse(this.chooseMouseType(), this.cloverRemaining, this.flowerActive);
   }
 
   private spawnMouse(): void {
@@ -139,7 +141,7 @@ export class GameScene extends Phaser.Scene {
     const miss = (hole: Hole) => this.handleMistake(hole, 'miss');
     const visibleMs = this.state.mouseVisibleMs;
     if (this.field.predictedType) this.field.spawnPredictedMouse(visibleMs, miss);
-    else this.field.spawnMouse(visibleMs, miss, this.chooseMouseType(), this.cloverRemaining);
+    else this.field.spawnMouse(visibleMs, miss, this.chooseMouseType(), this.cloverRemaining, this.flowerActive);
   }
 
   private chooseMouseType(): MouseType {
@@ -156,6 +158,12 @@ export class GameScene extends Phaser.Scene {
 
   private hitMouse(hole: Hole): void {
     if (this.state.phase !== 'playing' || hole.mouse === null) return;
+    if (hole.mouseType === 'friendly') {
+      const restored = this.state.restoreLife(BALANCE.friendlyMouseLifeGain);
+      this.field.clearMouse(hole, true);
+      this.ui.showLifeRestored(hole.x, hole.y, restored);
+      return;
+    }
     if (hole.mouseType === 'decoy') {
       this.handleMistake(hole, 'decoy');
       return;
@@ -238,6 +246,11 @@ export class GameScene extends Phaser.Scene {
     // Сначала учитываем мышь, затем обновляем действующие эффекты и предлагаем предмет.
     // Новые сроки считаются от уже обновлённого числа появлений.
     this.mouseAppearances++;
+    if (hole.mouseType === 'friendly') {
+      this.flowerActive = false;
+      this.ui.updateFlower(false);
+      this.ui.showFriendlyMouse();
+    }
     if (predicted && this.predictionsRemaining > 0) {
       this.predictionsRemaining--;
       this.ui.updatePredictions(this.predictionsRemaining);
@@ -290,23 +303,28 @@ export class GameScene extends Phaser.Scene {
 
   private chooseUsefulItemType(): UsefulItemType {
     const chances = this.state.gameStage === 4
-      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0, coin: 0 };
-    const { cheese, bigCheese, heart, shield, glasses, clover, coin } = chances;
-    const heartWeight = this.state.lives < BALANCE.startLives ? heart : 0;
+      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0, coin: 0, flower: 0 };
+    const { cheese, bigCheese, heart, shield, glasses, clover, coin, flower } = chances;
+    const missingLife = this.state.lives < BALANCE.startLives;
+    const heartWeight = missingLife ? heart : 0;
     const shieldWeight = this.state.hasShield ? 0 : shield;
     const coinWeight = this.state.hasCoinBonus ? 0 : coin;
+    const flowerChance = import.meta.env.DEV && flower > 0 ? BALANCE.testFlowerWeight : flower;
+    const flowerWeight = missingLife && !this.flowerActive && this.field.predictedType !== 'friendly' ? flowerChance : 0;
     const cheeseWeight = cheese + bigCheese;
     const heartThreshold = cheeseWeight + heartWeight;
     const shieldThreshold = heartThreshold + shieldWeight;
     const glassesThreshold = shieldThreshold + glasses;
     const cloverThreshold = glassesThreshold + clover;
-    const roll = Math.random() * (cloverThreshold + coinWeight);
+    const coinThreshold = cloverThreshold + coinWeight;
+    const roll = Math.random() * (coinThreshold + flowerWeight);
     if (roll < cheese) return 'cheese';
     if (roll < cheeseWeight) return 'bigCheese';
     if (roll < heartThreshold) return 'heart';
     if (roll < shieldThreshold) return 'shield';
     if (roll < glassesThreshold) return 'glasses';
-    return roll < cloverThreshold ? 'clover' : 'coin';
+    if (roll < cloverThreshold) return 'clover';
+    return roll < coinThreshold ? 'coin' : 'flower';
   }
 
   private scheduleNextItem(): void {
@@ -342,6 +360,10 @@ export class GameScene extends Phaser.Scene {
     } else if (type === 'coin') {
       this.state.activateCoinBonus();
       this.ui.showCoinPickup();
+    } else if (type === 'flower') {
+      this.flowerActive = true;
+      this.ui.updateFlower(true);
+      this.ui.showFlowerPickup();
     } else {
       this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife());
     }
@@ -398,6 +420,7 @@ export class GameScene extends Phaser.Scene {
     this.mouseAppearances = 0;
     this.predictionsRemaining = 0;
     this.cloverRemaining = 0;
+    this.flowerActive = false;
     this.nextItem = undefined;
     this.activeItem = undefined;
     this.holeBlock = undefined;
@@ -468,6 +491,7 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateCoin();
     this.ui.updatePredictions(0);
     this.ui.updateClover(0);
+    this.ui.updateFlower(false);
     this.ui.hidePhaseTransition();
     this.progress.addCompletedGame(this.state.score);
     this.field.clearAll();

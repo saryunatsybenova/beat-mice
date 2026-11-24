@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { GameStage, GameState, TransitionStage } from '../GameState';
 import { BALANCE } from '../settings';
 import { COLORS, ANIMATION } from '../theme';
-import { makeCheeseCoin, makeMouse, makeShield } from '../visuals';
+import { makeCheeseCoin, makeMagicFlower, makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
 import type { PlayerProgress } from '../ProgressStore';
 
@@ -25,6 +25,7 @@ export class GameUI {
   private cloverText!: Phaser.GameObjects.Text;
   private coinIndicator!: Phaser.GameObjects.Container;
   private coinIcon!: Phaser.GameObjects.Graphics;
+  private flowerIndicator!: Phaser.GameObjects.Container;
   private shieldIcon!: Phaser.GameObjects.Graphics;
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
@@ -246,6 +247,18 @@ export class GameUI {
     this.showTopNotice('Три золотых шанса!');
   }
 
+  updateFlower(active: boolean): void {
+    this.flowerIndicator.setVisible(active);
+  }
+
+  showFlowerPickup(): void {
+    this.showTopNotice('Следующая мышка с цветком поможет!');
+  }
+
+  showFriendlyMouse(): void {
+    this.showTopNotice('Мышка с сердцем — нажимай!');
+  }
+
   updateCoin(): void {
     const active = this.state.hasCoinBonus;
     this.coinIndicator.setVisible(active);
@@ -420,7 +433,8 @@ export class GameUI {
     this.updateCoin();
     const livesCenter = cardCenter(2);
     this.shieldIcon = makeShield(this.scene, livesCenter + 44, 40).setScale(0.35);
-    this.hud.add(this.shieldIcon);
+    this.flowerIndicator = makeMagicFlower(this.scene, livesCenter - 44, 42).setScale(0.35).setVisible(false);
+    this.hud.add([this.shieldIcon, this.flowerIndicator]);
     this.updateShield();
     const spacing = Math.min(26, (cardWidth - 20) / BALANCE.startLives);
     for (let i = 0; i < BALANCE.startLives; i++) {

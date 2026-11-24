@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 import { COLORS } from './theme';
 
-export type MouseType = 'normal' | 'decoy' | 'golden' | 'helmet';
-export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover' | 'coin';
+export type MouseType = 'normal' | 'decoy' | 'friendly' | 'golden' | 'helmet';
+export type UsefulItemType = 'cheese' | 'bigCheese' | 'heart' | 'shield' | 'glasses' | 'clover' | 'coin' | 'flower';
 
 export interface MouseAppearance {
   object: Phaser.GameObjects.Container;
@@ -37,6 +37,10 @@ export function makeMouse(scene: Phaser.Scene, x: number, y: number,
   mouse.add(scene.add.ellipse(-24, 28, 20, 12, COLORS.cream));
   mouse.add(scene.add.ellipse(24, 28, 20, 12, COLORS.cream));
   if (type === 'decoy') addFlower(mouse, scene);
+  if (type === 'friendly') {
+    mouse.add(makeMagicFlower(scene, 38, -39));
+    mouse.add(makeFriendlyHeart(scene, 0, -48));
+  }
   if (type === 'golden') addStar(mouse, scene);
   const helmet = type === 'helmet' ? addHelmet(mouse, scene) : undefined;
   return { object: mouse, helmet };
@@ -96,6 +100,8 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
     item.add(scene.add.circle(0, -1, 3, 0xbcd876));
   } else if (type === 'coin') {
     item.add(makeCheeseCoin(scene, 0, 0));
+  } else if (type === 'flower') {
+    item.add(makeMagicFlower(scene, 0, -2).setScale(1.15));
   } else {
     const heart = scene.add.graphics().fillStyle(0xe35469).lineStyle(3, 0x9f3447);
     heart.fillCircle(-11, -8, 13).fillCircle(11, -8, 13);
@@ -105,6 +111,29 @@ export function makeUsefulItem(scene: Phaser.Scene, x: number, y: number,
     item.add(scene.add.circle(-11, -9, 3, 0xffc7cf).setAlpha(0.9));
   }
   return item;
+}
+
+export function makeMagicFlower(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Container {
+  const flower = scene.add.container(x, y);
+  flower.add(scene.add.circle(0, -7, 23, 0xffefad, 0.47));
+  const petals = scene.add.graphics().lineStyle(4, 0x4d7946)
+    .lineBetween(1, 2, -3, 21).fillStyle(0x68a85c).fillEllipse(2, 13, 14, 7);
+  petals.fillStyle(0x9454a2);
+  for (let i = 0; i < 6; i++) {
+    const angle = i * Math.PI / 3;
+    petals.fillCircle(Math.cos(angle) * 11, Math.sin(angle) * 11 - 7, 7);
+  }
+  petals.fillStyle(0xffd568).fillCircle(0, -7, 7).fillStyle(COLORS.cream).fillCircle(-2, -9, 2.5);
+  flower.add([petals, scene.add.star(17, -21, 4, 2, 5, COLORS.cream)]);
+  return flower;
+}
+
+function makeFriendlyHeart(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics {
+  const heart = scene.add.graphics().setPosition(x, y);
+  heart.fillStyle(COLORS.cream).fillCircle(0, 0, 13);
+  heart.fillStyle(0xb94262).fillCircle(-4, -2, 5).fillCircle(4, -2, 5)
+    .fillTriangle(-8, 1, 8, 1, 0, 9);
+  return heart;
 }
 
 export function makeCheeseCoin(scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics {
@@ -143,6 +172,10 @@ export function makePredictionMarker(scene: Phaser.Scene, x: number, y: number, 
         icon.fillCircle(Math.cos(angle) * 4, Math.sin(angle) * 4 - 1, 3.5);
       }
       icon.fillStyle(0xffd766).fillCircle(0, -1, 3.5);
+      break;
+    case 'friendly':
+      marker.add(makeFriendlyHeart(scene, -6, -1).setScale(0.85));
+      marker.add(makeMagicFlower(scene, 8, 3).setScale(0.49));
       break;
     case 'golden':
       marker.add(scene.add.star(0, 0, 5, 7, 14, 0xffc44d).setStrokeStyle(2, COLORS.holeInner));
