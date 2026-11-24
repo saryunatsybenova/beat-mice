@@ -3,6 +3,7 @@ import { GameState, type TransitionStage } from './GameState';
 import { GardenVisitors } from './GardenVisitors';
 import { GardenEvents } from './GardenEvents';
 import { GardenEventEffects } from './GardenEventEffects';
+import { GardenDecor } from './gardenArt';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { availableItems, drawUsefulItem } from './itemBalance';
@@ -19,6 +20,7 @@ export class GameScene extends Phaser.Scene {
   private field!: MouseField;
   private visitors!: GardenVisitors;
   private eventEffects!: GardenEventEffects;
+  private decor!: GardenDecor;
   private ui!: GameUI;
   private pausedTweens: Phaser.Tweens.Tween[] = [];
   private phaseTransitionTimer?: Phaser.Time.TimerEvent;
@@ -48,12 +50,14 @@ export class GameScene extends Phaser.Scene {
       (hole, predicted, convertedByClover) => this.handleMouseAppeared(hole, predicted, convertedByClover));
     this.visitors = new GardenVisitors(this);
     this.eventEffects = new GardenEventEffects(this);
+    this.decor = new GardenDecor(this);
     this.ui = new GameUI(this, this.state, {
       start: () => this.startGame(),
       resume: () => this.resumeGame(),
       restart: () => this.scene.restart({ startImmediately: true }),
       menu: () => this.scene.restart({ startImmediately: false }),
-    }, () => this.progress.snapshot);
+      refreshDecor: () => this.refreshGardenDecor(),
+    }, this.progress);
     this.layout();
     this.scale.on('resize', this.layout, this);
     this.input.on('pointerdown', this.handlePointerDown, this);
@@ -68,6 +72,7 @@ export class GameScene extends Phaser.Scene {
     if (this.gardenEvents.prepare(this.mouseAppearances)) this.showEventWarning();
     this.visitors.update(this.state.gameStage, this.mouseAppearances, delta, !this.gardenEvents.current);
     this.eventEffects.update(delta, this.activeGardenEvent);
+    this.decor.update(delta);
   }
 
   private layout(): void {
@@ -78,6 +83,7 @@ export class GameScene extends Phaser.Scene {
     const zoom = Math.min(this.scale.width / width, this.scale.height / height);
     this.cameras.main.setZoom(zoom).centerOn(width / 2, height / 2);
     this.field.resize(width, height);
+    this.refreshGardenDecor();
     this.eventEffects.resize(this.field.gardenBounds);
     this.visitors.resize(this.field.gardenBounds, this.field.holes[0].y, this.field.holes[BALANCE.gridCols].y, compact);
     this.ui.resize(width, height);
@@ -86,6 +92,10 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateClover(this.cloverRemaining);
     this.ui.updateFlower(this.flowerActive);
     this.updateEventPresentation();
+  }
+
+  private refreshGardenDecor(): void {
+    this.decor.resize(this.field.gardenBounds, this.progress.snapshot);
   }
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
@@ -581,9 +591,10 @@ export class GameScene extends Phaser.Scene {
     this.ui.updateClover(0);
     this.ui.updateFlower(false);
     this.ui.hidePhaseTransition();
-    this.progress.addCompletedGame(this.state.score);
+    const rewards = this.progress.addCompletedGame(this.state.score);
+    this.refreshGardenDecor();
     this.field.clearAll();
-    this.ui.showGameOver();
+    this.ui.showGameOver(rewards);
   }
 
   private cleanup(): void {
@@ -600,6 +611,7 @@ export class GameScene extends Phaser.Scene {
     this.time.paused = false;
     this.pausedTweens = [];
     this.field.dispose();
+    this.decor.destroy();
     this.ui.dispose();
   }
 }

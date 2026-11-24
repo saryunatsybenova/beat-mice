@@ -32,20 +32,20 @@ export function makeText(scene: Phaser.Scene, x: number,
 }
 
 export function createButton(scene: Phaser.Scene, x: number, y: number, label: string,
-  onClick: () => void, secondary = false): Phaser.GameObjects.Container {
+  onClick: () => void, secondary = false, width = 290): Phaser.GameObjects.Container {
   const height = secondary ? 40 : 72;
   const radius = secondary ? 14 : 23;
   const base = secondary ? COLORS.ground : COLORS.button;
   const hover = secondary ? 0xd5e5b8 : COLORS.buttonHover;
   const pressedColor = secondary ? COLORS.grass : COLORS.buttonPressed;
   const button = scene.add.container(x, y);
-  const background = panel(scene, -145, -height / 2, 290, height, radius, base);
+  const background = panel(scene, -width / 2, -height / 2, width, height, radius, base);
   const text = makeText(scene, 0, 0, label, secondary ? 20 : 28, secondary ? COLORS.ink : COLORS.cream, 0.5, 0.5);
-  const target = scene.add.zone(0, 0, 290, height).setInteractive({ useHandCursor: true });
+  const target = scene.add.zone(0, 0, width, height).setInteractive({ useHandCursor: true });
   let pressed = false;
   const paint = (color: number, scale: number) => {
-    background.clear().fillStyle(pressedColor).fillRoundedRect(-145, -height / 2 + 5, 290, height, radius);
-    background.fillStyle(color).fillRoundedRect(-145, -height / 2, 290, height, radius);
+    background.clear().fillStyle(pressedColor).fillRoundedRect(-width / 2, -height / 2 + 5, width, height, radius);
+    background.fillStyle(color).fillRoundedRect(-width / 2, -height / 2, width, height, radius);
     scene.tweens.killTweensOf(button);
     scene.tweens.add({ targets: button, scale, duration: ANIMATION.button });
   };

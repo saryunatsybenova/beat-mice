@@ -50,6 +50,15 @@ export const BALANCE = {
   },
 } as const;
 
+export const GARDEN_REWARDS = [
+  { id: 'flowerbed', title: 'Клумба с цветами', threshold: 100 },
+  { id: 'bench', title: 'Скамейка', threshold: 250 },
+  { id: 'fountain', title: 'Небольшой фонтан', threshold: 500 },
+  { id: 'hedgehogHome', title: 'Домик для ёжика', threshold: 800 },
+  { id: 'sleepingCat', title: 'Спящий кот', threshold: 1200 },
+  { id: 'fireflies', title: 'Светлячки и вечернее освещение', threshold: 1800 },
+] as const;
+
 export const GARDEN_VISITORS = {
   firstWaitAppearances: 6,
   nextWaitAppearances: { min: 12, max: 18 },

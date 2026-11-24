@@ -85,6 +85,124 @@ canvas { display: block; touch-action: none; }
   background: #edf0df var(--legend-atlas, none) no-repeat;
 }
 .legend-list p { margin: 3px 0 0; color: #685e4d; font-size: 0.875rem; line-height: 1.35; }
+.garden-dialog {
+  width: min(940px, calc(100% - 24px));
+  max-height: min(760px, calc(100dvh - 24px));
+  padding: 0;
+  border: 1px solid #e3ddca;
+  border-radius: 24px;
+  color: #493e32;
+  background: #fff8e9;
+  box-shadow: 0 16px 56px rgb(53 70 35 / 24%);
+  overflow: hidden;
+}
+.garden-dialog[open] { display: flex; flex-direction: column; }
+.garden-dialog::backdrop { background: rgb(48 70 36 / 38%); }
+.garden-dialog [hidden] { display: none; }
+.garden-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e9dfca;
+}
+.garden-header h2 { margin: 0; font-size: clamp(22px, 4vw, 29px); }
+.garden-dialog button { font: inherit; cursor: pointer; }
+.garden-dialog button:focus-visible { outline: 2px solid #54733e; outline-offset: 1px; }
+.garden-back, .garden-toggle {
+  min-height: 40px;
+  padding: 5px 12px;
+  border-radius: 12px;
+  border: 1px solid #a9bf8d;
+  background: #eaf1db;
+  color: #455b37;
+}
+.garden-back { background: #587747; border-color: #587747; color: #fff8e9; }
+.garden-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 14px 20px 20px;
+}
+.garden-notice { margin: 0 0 12px; padding: 9px 12px; border-radius: 10px; background: #f5e7bc; font-size: 0.875rem; }
+.garden-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+.garden-total { font-size: 1.1rem; }
+.garden-next { color: #566747; font-size: 0.875rem; overflow-wrap: anywhere; }
+.garden-progress progress {
+  grid-column: 1 / -1;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: #e5ead5;
+  overflow: hidden;
+}
+.garden-progress progress::-webkit-progress-bar { background: #e5ead5; }
+.garden-progress progress::-webkit-progress-value { background: #7a9d59; }
+.garden-progress progress::-moz-progress-bar { background: #7a9d59; }
+.garden-layout { display: grid; grid-template-columns: minmax(0, 1.46fr) minmax(0, 1fr); gap: 16px; }
+.garden-picture {
+  position: relative;
+  aspect-ratio: 720 / 410;
+  background: #c7dfa3 center / cover;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.garden-evening::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: radial-gradient(ellipse at 35% 28%, #ffeab767, #5a56754d 75%);
+  pointer-events: none;
+}
+.garden-spot {
+  position: absolute;
+  width: 23%;
+  min-width: 42px;
+  min-height: 40px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 16px;
+  transform: translate(-50%, -50%);
+}
+.garden-spot img { display: block; width: 100%; pointer-events: none; }
+.garden-spot[aria-pressed="true"] { outline: 1px dashed #527847; outline-offset: -2px; }
+.garden-locked img { filter: grayscale(1) brightness(0.57); opacity: 0.26; }
+.garden-detail { display: flex; align-items: center; gap: 8px; margin-top: 9px; padding: 4px 12px; background: #f2efdd; border-radius: 14px; }
+.garden-detail img { width: 76px; height: 59px; object-fit: contain; flex: none; }
+.garden-detail p { margin: 4px 0 0; color: #706453; font-size: 0.875rem; }
+.garden-rewards { list-style: none; margin: 0; padding: 0; }
+.garden-rewards li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #e9dfca; padding: 3px 0; }
+.garden-select {
+  flex: 1;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+  color: inherit;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+.garden-select[aria-pressed="true"] { background: #eef1db; }
+.garden-select span { display: block; margin-top: 4px; font-size: 0.79rem; color: #706453; }
+.garden-dialog .garden-toggle { flex: none; font-size: 0.85rem; }
+@media (max-width: 660px) {
+  .garden-layout { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .garden-progress { grid-template-columns: 1fr; }
+  .garden-scroll { padding: 10px 12px 16px; }
+  .garden-header { padding: 10px 12px; }
+}
 @media (max-width: 600px), (max-height: 480px) {
   #app { padding: env(safe-area-inset-top) env(safe-area-inset-right)
     env(safe-area-inset-bottom) env(safe-area-inset-left); }
