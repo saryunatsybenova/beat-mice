@@ -149,7 +149,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private scheduleSpawns(): void {
-    const warn = this.state.gameStage === 4 ? () => this.warnAboutMouse() : undefined;
+    const warn = this.state.gameStage >= 4 ? () => this.warnAboutMouse() : undefined;
     this.field.scheduleSpawns(this.spawnIntervalMs, () => this.spawnMouse(), warn);
   }
 
@@ -248,7 +248,7 @@ export class GameScene extends Phaser.Scene {
     this.updateEventPresentation();
     this.eventEffects.setSuspended(true);
     this.visitors.hide();
-    this.field.clearMice();
+    this.field.clearMice(true);
     this.field.setItemsVisible(false);
     this.playPhaseTransition(stage);
   }
@@ -286,7 +286,7 @@ export class GameScene extends Phaser.Scene {
       this.ui.updateStreak();
       this.tryPendingFieldActions();
       this.scheduleSpawns();
-      if (stage !== 4) this.spawnMouse();
+      if (stage < 4) this.spawnMouse();
     });
   }
 
@@ -497,7 +497,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private playPhaseSignal(stage: TransitionStage): void {
-    this.playSignal(stage === 4 ? [523, 659, 784] : [460, 680], BALANCE.phaseSignalMs,
+    this.playSignal(stage >= 4 ? [523, 659, 784] : [460, 680], BALANCE.phaseSignalMs,
       () => this.state.isTransitioning && this.state.gameStage === stage);
   }
 

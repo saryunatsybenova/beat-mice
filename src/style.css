@@ -25,6 +25,66 @@ body { overflow: hidden; }
   box-shadow: 0 12px 48px rgb(79 96 49 / 18%);
 }
 canvas { display: block; touch-action: none; }
+.legend {
+  width: min(560px, calc(100% - 24px));
+  max-height: min(650px, calc(100dvh - 28px));
+  padding: 0;
+  border: 1px solid #e3ddca;
+  border-radius: 24px;
+  color: #493e32;
+  background: #fff8e9;
+  box-shadow: 0 16px 56px rgb(53 70 35 / 24%);
+  overflow: hidden;
+}
+.legend[open] { display: flex; flex-direction: column; }
+.legend::backdrop { background: rgb(48 70 36 / 38%); }
+.legend header, .legend-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+}
+.legend header { justify-content: space-between; }
+.legend h2 { margin: 0; font-size: clamp(19px, 4vw, 25px); }
+.legend button {
+  min-height: 42px;
+  padding: 4px 12px;
+  border: 1px solid #b6c799;
+  border-radius: 12px;
+  background: #f2f4e7;
+  color: #405736;
+  font: inherit;
+  font-weight: bold;
+  cursor: pointer;
+}
+.legend .legend-close { background: #587747; border-color: #587747; color: #fff8e9; }
+.legend-tabs { padding-top: 0; }
+.legend-tabs button { flex: 1; }
+.legend-tabs button[aria-pressed="true"] { background: #d8e7bf; border-color: #759b5a; }
+.legend button:focus-visible, .legend-scroll:focus-visible { outline: 2px solid #5d8046; outline-offset: -3px; }
+.legend-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 0 16px 12px;
+}
+.legend-list { margin: 0; padding: 0; list-style: none; }
+.legend-list li {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid #e6deca;
+}
+.legend-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  background: #edf0df var(--legend-atlas, none) no-repeat;
+}
+.legend-list p { margin: 3px 0 0; color: #685e4d; font-size: 0.875rem; line-height: 1.35; }
 @media (max-width: 600px), (max-height: 480px) {
   #app { padding: env(safe-area-inset-top) env(safe-area-inset-right)
     env(safe-area-inset-bottom) env(safe-area-inset-left); }

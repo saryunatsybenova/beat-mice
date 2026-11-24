@@ -17,6 +17,7 @@ test('phase item tables and eligibility', () => {
   assert.deepEqual(Object.fromEntries(availableItems(4, allEligible)), {
     cheese: 25, bigCheese: 15, heart: 15, shield: 10, glasses: 10, clover: 10, coin: 10, flower: 5,
   });
+  assert.deepEqual(availableItems(5, allEligible), availableItems(4, allEligible));
   assert.deepEqual(Object.fromEntries(availableItems(4, { ...allEligible, hasFlowerCharge: true })), {
     cheese: 25, bigCheese: 15, heart: 15, shield: 10, glasses: 10, clover: 10, coin: 10,
   });

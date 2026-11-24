@@ -13,7 +13,7 @@ interface ItemAvailability {
 
 export function availableItems(stage: GameStage, state: ItemAvailability): ItemWeight[] {
   if (stage < 3) return [];
-  const weights = stage === 4
+  const weights = stage >= 4
     ? BALANCE.phase4UsefulItemChances
     : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0, coin: 0, flower: 0 };
   const choices: ItemWeight[] = [

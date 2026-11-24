@@ -4,15 +4,17 @@ import { BALANCE } from '../settings';
 import { COLORS, EVENT_ACCENTS, ANIMATION } from '../theme';
 import { makeCheeseCoin, makeMagicFlower, makeMouse, makeShield } from '../visuals';
 import { panel, makeText, createButton } from './widgets';
+import { Legend } from './Legend';
 import type { PlayerProgress } from '../ProgressStore';
 import type { GardenEvent, GardenEventType } from '../GardenEvents';
 
 interface UIActions { start: () => void; resume: () => void; restart: () => void; menu: () => void; }
 
-const STAGE_COLORS = { 1: '#7a705b', 2: '#9a5b29', 3: '#527d48', 4: '#79507f' } as const;
+const STAGE_COLORS = { 1: '#7a705b', 2: '#9a5b29', 3: '#527d48', 4: '#79507f', 5: '#874a38' } as const;
 const STAGE_SUBTITLES = {
   2: 'Мыши наступают!',
   4: 'Сад полон сюрпризов!',
+  5: 'Мыши набирают темп!',
 } as const;
 const EVENT_LABELS: Record<GardenEventType, { title: string; rule: string }> = {
   goldRush: { title: 'Золотая лихорадка', rule: 'больше золотых мышей!' },
@@ -37,6 +39,7 @@ export class GameUI {
   private hearts: Phaser.GameObjects.Graphics[] = [];
   private hud!: Phaser.GameObjects.Container;
   private uiLayer?: Phaser.GameObjects.Container;
+  private legend?: Legend;
   private confirmingAbandon = false;
   private phaseTransitionLayer?: Phaser.GameObjects.Container;
   private decoyWarning?: Phaser.GameObjects.Container;
@@ -169,8 +172,9 @@ export class GameUI {
     const w = this.layoutWidth, h = this.layoutHeight;
     const centerY = h / 2 + 28;
     const layer = this.scene.add.container(0, 0).setDepth(5);
+    const tint = stage === 5 ? COLORS.phase5Tint : stage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint;
     const wave = this.scene.add.graphics()
-      .lineStyle(5, stage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint, 0.28)
+      .lineStyle(5, tint, 0.28)
       .strokeCircle(w / 2, centerY, Math.min(42, w * 0.09));
     const titleSize = Math.min(42, w * 0.09);
     const title = makeText(this.scene, w / 2, centerY - (stage === 3 ? 0 : 18), `ФАЗА ${stage}`, titleSize,
@@ -194,7 +198,7 @@ export class GameUI {
     this.scene.tweens.add({
       targets: wave, scale: 2.2, alpha: 0, duration: ANIMATION.phaseWave, ease: 'Sine.out',
     });
-    if (stage === 4) this.addPhaseCelebration(layer, w / 2, centerY);
+    if (stage >= 4) this.addPhaseCelebration(layer, w / 2, centerY);
   }
 
   private addPhaseCelebration(layer: Phaser.GameObjects.Container, x: number, y: number): void {
@@ -415,6 +419,7 @@ export class GameUI {
   }
 
   dispose(): void {
+    this.legend?.destroy();
     this.hideOverlay();
     this.hidePhaseTransition();
     this.hideDecoyWarning();
@@ -522,7 +527,7 @@ export class GameUI {
   }
 
   showMenu(): void {
-    const { w, top, layer } = this.createOverlay(460, 460);
+    const { w, top, layer } = this.createOverlay(510, 460);
     const center = w / 2;
     layer.add(this.scene.add.circle(center, top + 78, 53, COLORS.ground, 0.48)
       .setStrokeStyle(1, COLORS.leaf, 0.35));
@@ -551,7 +556,9 @@ export class GameUI {
     }
 
     layer.add(createButton(this.scene, center, top + 379, 'Играть', this.actions.start));
-    layer.add(makeText(this.scene, center, top + 437, 'Мышь / касание · P или Esc — пауза',
+    layer.add(createButton(this.scene, center, top + 441, 'Мыши и предметы',
+      () => (this.legend ??= new Legend(this.scene)).open(), true));
+    layer.add(makeText(this.scene, center, top + 484, 'Мышь / касание · P или Esc — пауза',
       16, COLORS.muted, 0.5, 0.5));
   }
 

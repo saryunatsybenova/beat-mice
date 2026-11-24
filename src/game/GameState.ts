@@ -1,7 +1,7 @@
 import { BALANCE } from './settings';
 
 export type GamePhase = 'menu' | 'playing' | 'transition' | 'paused' | 'gameover';
-export type GameStage = 1 | 2 | 3 | 4;
+export type GameStage = keyof typeof BALANCE.phaseScores;
 export type TransitionStage = Exclude<GameStage, 1>;
 
 /** Состояние и правила партии. Не зависит от Phaser и не рисует интерфейс. */
@@ -17,7 +17,10 @@ export class GameState {
   private healingAvailableAt = 0;
   private pausedPhase: 'playing' | 'transition' = 'playing';
 
-  get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].spawnIntervalMs; }
+  get spawnIntervalMs(): number {
+    const base = BALANCE.phases[this.gameStage === 1 ? 1 : 2].spawnIntervalMs;
+    return this.gameStage === 5 ? base * BALANCE.phase5SpawnMultiplier : base;
+  }
   get mouseVisibleMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].mouseVisibleMs; }
   get scoreMultiplier(): number {
     return this.gameStage >= 2 && this.streak >= BALANCE.streakThreshold ? BALANCE.streakMultiplier : 1;
@@ -82,9 +85,9 @@ export class GameState {
   }
 
   private advanceStage(): TransitionStage | undefined {
-    if (this.gameStage === 1 && this.score >= BALANCE.phase2Score) return (this.gameStage = 2);
-    if (this.gameStage === 2 && this.score >= BALANCE.phase3Score) return (this.gameStage = 3);
-    if (this.gameStage === 3 && this.score >= BALANCE.phase4Score) return (this.gameStage = 4);
+    if (this.gameStage === 5) return;
+    const next = (this.gameStage + 1) as TransitionStage;
+    if (this.score >= BALANCE.phaseScores[next]) return (this.gameStage = next);
   }
 
   activateShield(): boolean {

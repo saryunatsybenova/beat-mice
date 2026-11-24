@@ -32,23 +32,28 @@ export function makeText(scene: Phaser.Scene, x: number,
 }
 
 export function createButton(scene: Phaser.Scene, x: number, y: number, label: string,
-  onClick: () => void): Phaser.GameObjects.Container {
+  onClick: () => void, secondary = false): Phaser.GameObjects.Container {
+  const height = secondary ? 40 : 72;
+  const radius = secondary ? 14 : 23;
+  const base = secondary ? COLORS.ground : COLORS.button;
+  const hover = secondary ? 0xd5e5b8 : COLORS.buttonHover;
+  const pressedColor = secondary ? COLORS.grass : COLORS.buttonPressed;
   const button = scene.add.container(x, y);
-  const background = panel(scene, -145, -36, 290, 72, 23, COLORS.button);
-  const text = makeText(scene, 0, 0, label, 28, COLORS.cream, 0.5, 0.5);
-  const target = scene.add.zone(0, 0, 290, 72).setInteractive({ useHandCursor: true });
+  const background = panel(scene, -145, -height / 2, 290, height, radius, base);
+  const text = makeText(scene, 0, 0, label, secondary ? 20 : 28, secondary ? COLORS.ink : COLORS.cream, 0.5, 0.5);
+  const target = scene.add.zone(0, 0, 290, height).setInteractive({ useHandCursor: true });
   let pressed = false;
   const paint = (color: number, scale: number) => {
-    background.clear().fillStyle(COLORS.buttonPressed).fillRoundedRect(-145, -31, 290, 72, 23);
-    background.fillStyle(color).fillRoundedRect(-145, -36, 290, 72, 23);
+    background.clear().fillStyle(pressedColor).fillRoundedRect(-145, -height / 2 + 5, 290, height, radius);
+    background.fillStyle(color).fillRoundedRect(-145, -height / 2, 290, height, radius);
     scene.tweens.killTweensOf(button);
     scene.tweens.add({ targets: button, scale, duration: ANIMATION.button });
   };
-  target.on('pointerover', () => paint(COLORS.buttonHover, 1.03));
-  target.on('pointerout', () => { pressed = false; paint(COLORS.button, 1); });
+  target.on('pointerover', () => paint(hover, 1.03));
+  target.on('pointerout', () => { pressed = false; paint(base, 1); });
   target.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number,
     event: Phaser.Types.Input.EventData) => {
-    event.stopPropagation(); pressed = true; paint(COLORS.buttonPressed, 0.97);
+    event.stopPropagation(); pressed = true; paint(pressedColor, 0.97);
   });
   target.on('pointerup', (_p: Phaser.Input.Pointer, _x: number, _y: number,
     event: Phaser.Types.Input.EventData) => {

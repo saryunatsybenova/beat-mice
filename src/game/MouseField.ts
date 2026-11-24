@@ -63,6 +63,7 @@ export class MouseField {
   private spawnTimer?: Phaser.Time.TimerEvent;
   private warningTimer?: Phaser.Time.TimerEvent;
   private spawnSchedule?: SpawnSchedule;
+  private transitionPredictionDelay?: number;
   private prediction?: MousePlan & { hole: Hole; marker: Phaser.GameObjects.Container };
 
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
@@ -118,9 +119,12 @@ export class MouseField {
   }
 
   scheduleSpawns(intervalMs: number, spawn: () => void, warn?: () => void): void {
-    this.stopSpawns();
+    const promisedDelay = this.transitionPredictionDelay;
+    this.transitionPredictionDelay = undefined;
+    if (promisedDelay === undefined) this.stopSpawns();
+    else this.prediction?.marker.setVisible(true);
     this.spawnSchedule = { intervalMs, spawn, warn };
-    this.scheduleSpawnCycle(this.spawnSchedule);
+    this.scheduleSpawnCycle(this.spawnSchedule, promisedDelay);
   }
 
   setSpawnInterval(intervalMs: number): void {
@@ -133,15 +137,15 @@ export class MouseField {
     this.scheduleSpawnCycle(schedule);
   }
 
-  private scheduleSpawnCycle(schedule: SpawnSchedule): void {
+  private scheduleSpawnCycle(schedule: SpawnSchedule, promisedDelay?: number): void {
     const { intervalMs, spawn, warn } = schedule;
-    const timer = this.scene.time.delayedCall(intervalMs, () => {
+    const timer = this.scene.time.delayedCall(promisedDelay ?? intervalMs, () => {
       this.cancelSpawnTimers();
       spawn();
       if (this.spawnSchedule === schedule) this.scheduleSpawnCycle(schedule);
     });
     this.spawnTimer = timer;
-    if (!warn) return;
+    if (!warn || promisedDelay !== undefined) return;
     const lead = intervalMs > BALANCE.glassesWarningMs ? BALANCE.glassesWarningMs : intervalMs / 2;
     this.warningTimer = this.scene.time.delayedCall(intervalMs - lead, () => {
       if (this.spawnTimer === timer) warn();
@@ -190,6 +194,7 @@ export class MouseField {
 
   stopSpawns(): void {
     this.spawnSchedule = undefined;
+    this.transitionPredictionDelay = undefined;
     this.cancelSpawnTimers();
     this.cancelPrediction();
   }
@@ -413,8 +418,16 @@ export class MouseField {
     this.onHoleFreed(hole);
   }
 
-  clearMice(): void {
-    this.stopSpawns();
+  clearMice(keepPrediction = false): void {
+    if (keepPrediction && this.prediction && this.spawnTimer) {
+      // После перехода выполняем обещанный выход, затем используем интервал новой фазы.
+      this.transitionPredictionDelay = this.spawnTimer.getRemaining();
+      this.spawnSchedule = undefined;
+      this.cancelSpawnTimers();
+      this.prediction.marker.setVisible(false);
+    } else {
+      this.stopSpawns();
+    }
     for (const hole of this.holes) this.clearMouse(hole);
   }
 
@@ -522,7 +535,8 @@ export class MouseField {
 
   private applyStageTint(): void {
     const { x, y, width, height, radius } = this.gardenBounds;
-    this.phaseTint?.clear().fillStyle(this.gameStage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint)
+    const tint = this.gameStage === 5 ? COLORS.phase5Tint : this.gameStage === 4 ? COLORS.phase4Tint : COLORS.phase2Tint;
+    this.phaseTint?.clear().fillStyle(tint)
       .fillRoundedRect(x, y, width, height, radius)
       .setAlpha(this.gameStage >= 2 ? BALANCE.phase2TintAlpha : 0);
   }
