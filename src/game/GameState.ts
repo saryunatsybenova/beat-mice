@@ -14,6 +14,7 @@ export class GameState {
   lives: number = BALANCE.startLives;
   private shieldCharges = 0;
   private coinActive = false;
+  private healingAvailableAt = 0;
   private pausedPhase: 'playing' | 'transition' = 'playing';
 
   get spawnIntervalMs(): number { return BALANCE.phases[this.gameStage === 1 ? 1 : 2].spawnIntervalMs; }
@@ -33,6 +34,7 @@ export class GameState {
     this.lives = BALANCE.startLives;
     this.clearShield();
     this.clearCoinBonus();
+    this.healingAvailableAt = 0;
     this.pausedPhase = 'playing';
   }
 
@@ -111,9 +113,15 @@ export class GameState {
     return { protected: false, brokeStreak };
   }
 
-  restoreLife(amount = 1): boolean {
-    if (this.phase !== 'playing' || this.lives >= BALANCE.startLives) return false;
+  canOfferHealing(mouseAppearances: number): boolean {
+    return this.lives < BALANCE.startLives && mouseAppearances >= this.healingAvailableAt;
+  }
+
+  restoreLife(mouseAppearances: number, amount = 1): boolean {
+    if (this.phase !== 'playing' || this.lives === 0 || this.lives >= BALANCE.startLives || amount <= 0) return false;
     this.lives = Math.min(BALANCE.startLives, this.lives + amount);
+    // Перерыв ограничивает новые предложения. Уже активное лечение действует.
+    this.healingAvailableAt = mouseAppearances + BALANCE.healingCooldownAppearances;
     return true;
   }
 
@@ -122,6 +130,7 @@ export class GameState {
     this.phase = 'gameover';
     this.clearShield();
     this.clearCoinBonus();
+    this.healingAvailableAt = 0;
     return true;
   }
 }

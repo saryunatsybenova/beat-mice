@@ -2,10 +2,11 @@ import Phaser from 'phaser';
 import { GameState, type TransitionStage } from './GameState';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
+import { availableItems, drawUsefulItem } from './itemBalance';
 import { BALANCE } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
-import type { MouseType, UsefulItemType } from './visuals';
+import type { MouseType } from './visuals';
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
@@ -159,7 +160,7 @@ export class GameScene extends Phaser.Scene {
   private hitMouse(hole: Hole): void {
     if (this.state.phase !== 'playing' || hole.mouse === null) return;
     if (hole.mouseType === 'friendly') {
-      const restored = this.state.restoreLife(BALANCE.friendlyMouseLifeGain);
+      const restored = this.state.restoreLife(this.mouseAppearances, BALANCE.friendlyMouseLifeGain);
       this.field.clearMouse(hole, true);
       this.ui.showLifeRestored(hole.x, hole.y, restored);
       return;
@@ -275,13 +276,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryOfferItem(freedHole?: Hole): void {
-    if (this.state.phase !== 'playing' || this.state.gameStage < 3) return;
+    if (this.state.phase !== 'playing' || this.state.gameStage < 3 || this.state.lives === 0) return;
     const offer = this.nextItem;
     if (!offer || this.mouseAppearances < offer.at || this.activeItem ||
       this.holeBlock) return;
 
-    const type = offer.guaranteedCheese ? 'cheese' : this.chooseUsefulItemType();
-    const hole = this.field.spawnUsefulItem(type, freedHole);
+    const choices = availableItems(this.state.gameStage, {
+      canOfferHealing: this.state.canOfferHealing(this.mouseAppearances),
+      hasShield: this.state.hasShield,
+      hasCoinBonus: this.state.hasCoinBonus,
+      hasFlowerCharge: this.flowerActive || this.field.predictedType === 'friendly',
+    });
+    if (!offer.guaranteedCheese && choices.length === 0) {
+      this.scheduleNextItem();
+      return;
+    }
+    const hole = this.field.spawnUsefulItem(
+      () => offer.guaranteedCheese ? 'cheese' : drawUsefulItem(choices), freedHole);
     if (!hole) return; // Наступивший срок остаётся в силе до освобождения норы.
     this.nextItem = undefined;
     this.activeItem = { hole, expiresAt: this.mouseAppearances + BALANCE.usefulItemVisibleAppearances };
@@ -299,32 +310,6 @@ export class GameScene extends Phaser.Scene {
     this.activeItem = undefined;
     this.field.clearItem(hole);
     this.scheduleNextItem();
-  }
-
-  private chooseUsefulItemType(): UsefulItemType {
-    const chances = this.state.gameStage === 4
-      ? BALANCE.phase4UsefulItemChances : { ...BALANCE.usefulItemChances, glasses: 0, clover: 0, coin: 0, flower: 0 };
-    const { cheese, bigCheese, heart, shield, glasses, clover, coin, flower } = chances;
-    const missingLife = this.state.lives < BALANCE.startLives;
-    const heartWeight = missingLife ? heart : 0;
-    const shieldWeight = this.state.hasShield ? 0 : shield;
-    const coinWeight = this.state.hasCoinBonus ? 0 : coin;
-    const flowerChance = import.meta.env.DEV && flower > 0 ? BALANCE.testFlowerWeight : flower;
-    const flowerWeight = missingLife && !this.flowerActive && this.field.predictedType !== 'friendly' ? flowerChance : 0;
-    const cheeseWeight = cheese + bigCheese;
-    const heartThreshold = cheeseWeight + heartWeight;
-    const shieldThreshold = heartThreshold + shieldWeight;
-    const glassesThreshold = shieldThreshold + glasses;
-    const cloverThreshold = glassesThreshold + clover;
-    const coinThreshold = cloverThreshold + coinWeight;
-    const roll = Math.random() * (coinThreshold + flowerWeight);
-    if (roll < cheese) return 'cheese';
-    if (roll < cheeseWeight) return 'bigCheese';
-    if (roll < heartThreshold) return 'heart';
-    if (roll < shieldThreshold) return 'shield';
-    if (roll < glassesThreshold) return 'glasses';
-    if (roll < cloverThreshold) return 'clover';
-    return roll < coinThreshold ? 'coin' : 'flower';
   }
 
   private scheduleNextItem(): void {
@@ -365,7 +350,7 @@ export class GameScene extends Phaser.Scene {
       this.ui.updateFlower(true);
       this.ui.showFlowerPickup();
     } else {
-      this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife());
+      this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife(this.mouseAppearances));
     }
     this.scheduleNextItem();
   }

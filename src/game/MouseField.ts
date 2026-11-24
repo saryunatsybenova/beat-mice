@@ -239,8 +239,10 @@ export class MouseField {
     this.onMouseAppeared(hole, predicted, convertedByClover);
   }
 
-  spawnUsefulItem(type: UsefulItemType, hole = this.randomFreeHole()): Hole | undefined {
+  spawnUsefulItem(choose: () => UsefulItemType | undefined, hole = this.randomFreeHole()): Hole | undefined {
     if (!hole || !this.isFree(hole) || this.holes.some(candidate => candidate.item !== null)) return;
+    const type = choose();
+    if (!type) return;
     const item = makeUsefulItem(this.scene, hole.x, hole.y - 8, type).setScale(0.65).setAlpha(0);
     this.scene.tweens.add({ targets: item, scale: 1, alpha: 1, duration: ANIMATION.appear, ease: 'Back.out' });
     hole.item = item;
