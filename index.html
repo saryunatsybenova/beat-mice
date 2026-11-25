@@ -7,6 +7,39 @@
     <title>Бей мышей</title>
   </head>
   <body>
+    <!-- Yandex.Metrika counter -->
+    <script>
+      (function (window, document, scriptUrl) {
+        window.ym = window.ym || function () {
+          (window.ym.a = window.ym.a || []).push(arguments);
+        };
+        window.ym.l = Date.now();
+
+        for (const script of document.scripts) {
+          if (script.src === scriptUrl) return;
+        }
+
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = scriptUrl;
+        document.head.appendChild(script);
+      })(window, document, 'https://mc.yandex.ru/metrika/tag.js?id=114661733');
+
+      ym(114661733, 'init', {
+        ssr: true,
+        webvisor: false,
+        clickmap: false,
+        referrer: document.referrer,
+        url: location.href,
+        accurateTrackBounce: true,
+        trackLinks: false,
+      });
+    </script>
+    <noscript>
+      <div><img src="https://mc.yandex.ru/watch/114661733" style="position: absolute; left: -9999px" alt="" /></div>
+    </noscript>
+    <!-- /Yandex.Metrika counter -->
+
     <main id="app">
       <div id="game"></div>
     </main>
