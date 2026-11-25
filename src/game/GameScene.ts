@@ -7,19 +7,23 @@ import { GardenDecor } from './gardenArt';
 import { MouseField, type Hole } from './MouseField';
 import { GameUI } from './ui/GameUI';
 import { availableItems, drawUsefulItem } from './itemBalance';
-import { BALANCE, GARDEN_EVENTS } from './settings';
+import { BALANCE, GARDEN_EVENTS, GARDEN_REWARDS } from './settings';
 import { COLORS } from './theme';
 import { ProgressStore } from './ProgressStore';
 import type { PartyTask } from './personalTasks';
 import type { MouseType } from './visuals';
 import { finishRound } from './roundResult';
+import { AnalyticsRun, analyticsId, type MouseResult } from './analytics';
 
 const PAUSE_HEADER_HEIGHT = 56; // Кнопка 44 CSS-пикселя и два отступа по 6.
+const FIRST_GARDEN_REWARD = GARDEN_REWARDS[0].id;
 
 /** Связывает правила, поле и интерфейс; здесь остаются ввод и жизненный цикл Phaser. */
 export class GameScene extends Phaser.Scene {
   private readonly state = new GameState();
   private readonly progress = new ProgressStore();
+  private run?: AnalyticsRun;
+  private readonly mouseIds = new WeakMap<NonNullable<Hole['mouse']>, string>();
   private partyTask?: PartyTask;
   private readonly gardenEvents = new GardenEvents();
   private field!: MouseField;
@@ -35,7 +39,7 @@ export class GameScene extends Phaser.Scene {
   private cloverRemaining = 0;
   private flowerActive = false;
   private nextItem?: { at: number; guaranteedCheese: boolean };
-  private activeItem?: { hole: Hole; expiresAt: number };
+  private activeItem?: { hole: Hole; id: string; expiresAt: number };
   private holeBlock?: { holes: Hole[]; target: number; expiresAt?: number };
   private signalAudio?: AudioContext;
   private signalOscillator?: OscillatorNode;
@@ -45,14 +49,15 @@ export class GameScene extends Phaser.Scene {
 
   constructor() { super('GameScene'); }
 
-  create(data: { startImmediately?: boolean } = {}): void {
+  create(data: { restartFrom?: AnalyticsRun } = {}): void {
     this.state.reset();
     this.time.paused = false;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.pausedTweens = [];
     this.field = new MouseField(this, hole => this.tryPendingFieldActions(hole),
-      (hole, predicted, convertedByClover) => this.handleMouseAppeared(hole, predicted, convertedByClover));
+      (hole, predicted, convertedByClover) => this.handleMouseAppeared(hole, predicted, convertedByClover),
+      (hole, losesLife) => this.handleMouseExpired(hole, losesLife));
     this.visitors = new GardenVisitors(this);
     this.eventEffects = new GardenEventEffects(this);
     this.decor = new GardenDecor(this);
@@ -60,8 +65,8 @@ export class GameScene extends Phaser.Scene {
       start: () => this.startGame(),
       pause: () => this.pauseGame(),
       resume: () => this.resumeGame(),
-      restart: () => this.scene.restart({ startImmediately: true }),
-      menu: () => this.scene.restart({ startImmediately: false }),
+      restart: () => this.restartAfterDefeat(),
+      menu: () => this.scene.restart({}),
       refreshDecor: () => this.refreshGardenDecor(),
     }, this.progress);
     this.layout();
@@ -72,7 +77,7 @@ export class GameScene extends Phaser.Scene {
     this.game.events.on(Phaser.Core.Events.BLUR, this.pauseGame, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
     this.ui.showMenu();
-    if (data.startImmediately) this.startGame();
+    if (data.restartFrom) this.startGame(data.restartFrom);
   }
 
   update(_time: number, delta: number): void {
@@ -143,7 +148,7 @@ export class GameScene extends Phaser.Scene {
     else this.resumeGame();
   }
 
-  private startGame(): void {
+  private startGame(restartFrom?: AnalyticsRun): void {
     if (this.state.phase !== 'menu') return;
     const progress = this.progress.snapshot;
     this.partyTask = this.progress.startTask();
@@ -153,6 +158,12 @@ export class GameScene extends Phaser.Scene {
     this.showedRecordNotification = false;
     this.field.setStage(1);
     this.state.start();
+    const run = this.run = new AnalyticsRun();
+    restartFrom?.track('restart', { next_run_id: run.id });
+    run.track('game_start', {
+      run_number: run.number,
+      first_garden_reward_unlocked: progress.unlockedRewards.includes(FIRST_GARDEN_REWARD),
+    });
     this.frameGame();
     this.ui.start();
     this.updateTaskProgress();
@@ -161,10 +172,18 @@ export class GameScene extends Phaser.Scene {
     else this.spawnMouse();
   }
 
+  private restartAfterDefeat(): void {
+    if (this.state.phase !== 'gameover' || !this.run) return;
+    const restartFrom = this.run;
+    this.run = undefined;
+    this.scene.restart({ restartFrom });
+  }
+
   private pauseGame(): void {
     const phase = this.state.phase;
     if (phase !== 'playing' && phase !== 'transition') return;
     this.state.pause();
+    this.run?.pause();
     this.time.paused = true;
     this.stopSignal();
     this.pausedTweens = this.tweens.getTweens().filter(tween => !tween.isPaused());
@@ -175,6 +194,7 @@ export class GameScene extends Phaser.Scene {
   private resumeGame(): void {
     if (this.state.phase !== 'paused' || document.hidden) return;
     this.state.resume();
+    this.run?.resume();
     this.ui.hideOverlay();
     this.time.paused = false;
     this.pausedTweens.forEach(tween => tween.resume());
@@ -206,11 +226,19 @@ export class GameScene extends Phaser.Scene {
 
   private spawnMouse(): void {
     if (this.state.phase !== 'playing' || this.state.lives === 0) return;
-    const miss = (hole: Hole) => this.handleMistake(hole, 'miss');
     const visibleMs = this.state.mouseVisibleMs;
-    if (this.field.predictedType) this.field.spawnPredictedMouse(visibleMs, miss);
-    else this.field.spawnMouse(visibleMs, miss, this.chooseMouseType(),
+    if (this.field.predictedType) this.field.spawnPredictedMouse(visibleMs);
+    else this.field.spawnMouse(visibleMs, this.chooseMouseType(),
       this.cloverRemaining, this.flowerActive, this.goldenLimit);
+  }
+
+  private handleMouseExpired(hole: Hole, losesLife: boolean): void {
+    if (losesLife) {
+      this.handleMistake(hole, 'miss');
+    } else {
+      this.resolveMouse(hole, 'escaped');
+      this.field.clearMouse(hole);
+    }
   }
 
   private chooseMouseType(): MouseType {
@@ -230,6 +258,7 @@ export class GameScene extends Phaser.Scene {
     if (this.state.phase !== 'playing' || hole.mouse === null) return;
     if (hole.mouseType === 'friendly') {
       const restored = this.state.restoreLife(this.mouseAppearances, BALANCE.friendlyMouseLifeGain);
+      this.resolveMouse(hole, 'friendly_collected');
       this.field.clearMouse(hole, true);
       this.ui.showLifeRestored(hole.x, hole.y, restored);
       return;
@@ -259,8 +288,10 @@ export class GameScene extends Phaser.Scene {
 
   private rewardMouse(hole: Hole, basePoints: number): void {
     if (hole.mouse === null) return;
+    const phase = this.state.gameStage;
     const reward = this.state.hit(basePoints);
     if (!reward) return;
+    this.resolveMouse(hole, 'caught', { phase });
     const type = hole.mouseType;
     if (type === 'normal' || type === 'golden' || type === 'helmet') this.partyTask?.count(type);
     this.updateTaskProgress();
@@ -277,6 +308,21 @@ export class GameScene extends Phaser.Scene {
     if (reward.enteredPhase) this.startPhaseTransition(reward.enteredPhase);
     if (this.state.streak === BALANCE.streakThreshold) this.ui.showStreakNotice(true);
     else this.ui.updateStreak();
+  }
+
+  private resolveMouse(hole: Hole, result: MouseResult, {
+    phase = this.state.gameStage, shield_absorbed = false, lives_lost = 0,
+  } = {}): void {
+    if (hole.mouse === null || hole.mouseType === null) return;
+    const mouseId = this.mouseIds.get(hole.mouse);
+    if (!mouseId) return;
+    this.mouseIds.delete(hole.mouse);
+    const event = this.activeGardenEvent;
+    this.run?.track('mouse_resolved', {
+      mouse_id: mouseId, mouse_type: hole.mouseType, phase,
+      active_event: event === 'goldRush' ? 'gold_rush' : event ?? 'none',
+      result, shield_absorbed, lives_lost,
+    });
   }
 
   private startPhaseTransition(stage: TransitionStage): void {
@@ -332,6 +378,7 @@ export class GameScene extends Phaser.Scene {
     // Сначала учитываем мышь, затем обновляем действующие эффекты и предлагаем предмет.
     // Новые сроки считаются от уже обновлённого числа появлений.
     this.mouseAppearances++;
+    if (this.run && hole.mouse) this.mouseIds.set(hole.mouse, `${this.run.id}:mouse:${this.mouseAppearances}`);
     if (hole.mouseType === 'friendly') {
       this.flowerActive = false;
       this.ui.updateFlower(false);
@@ -411,8 +458,12 @@ export class GameScene extends Phaser.Scene {
       () => offer.guaranteedCheese ? 'cheese' : drawUsefulItem(choices), freedHole);
     if (!hole) return; // Наступивший срок остаётся в силе до освобождения норы.
     this.nextItem = undefined;
-    this.activeItem = { hole, expiresAt: this.mouseAppearances + BALANCE.usefulItemVisibleAppearances };
+    const id = analyticsId();
+    this.activeItem = { hole, id, expiresAt: this.mouseAppearances + BALANCE.usefulItemVisibleAppearances };
     this.field.updateItemCount(hole, BALANCE.usefulItemVisibleAppearances);
+    if (hole.itemType) {
+      this.run?.track('item_spawned', { item_id: id, item_type: hole.itemType, phase: this.state.gameStage });
+    }
   }
 
   private advanceActiveItem(): void {
@@ -423,7 +474,7 @@ export class GameScene extends Phaser.Scene {
       this.field.updateItemCount(hole, remaining);
       return;
     }
-    this.activeItem = undefined;
+    this.resolveUsefulItem(hole, 'missed');
     this.field.clearItem(hole);
     this.scheduleNextItem();
   }
@@ -439,7 +490,7 @@ export class GameScene extends Phaser.Scene {
     if (!type) return;
     this.partyTask?.count('items');
     this.updateTaskProgress();
-    this.activeItem = undefined;
+    this.resolveUsefulItem(hole, 'collected');
     this.nextItem = undefined;
     if (type === 'cheese' || type === 'bigCheese') {
       // Нора сыра участвует в случайном выборе вместе с другими свободными норами.
@@ -471,6 +522,15 @@ export class GameScene extends Phaser.Scene {
       this.ui.showLifeRestored(hole.x, hole.y, this.state.restoreLife(this.mouseAppearances));
     }
     this.scheduleNextItem();
+  }
+
+  private resolveUsefulItem(hole: Hole, result: 'collected' | 'missed'): void {
+    const item = this.activeItem;
+    if (item?.hole !== hole || !hole.itemType) return;
+    this.activeItem = undefined;
+    this.run?.track('item_resolved', {
+      item_id: item.id, item_type: hole.itemType, phase: this.state.gameStage, result,
+    });
   }
 
   private updateTaskProgress(): void {
@@ -593,10 +653,18 @@ export class GameScene extends Phaser.Scene {
   private handleMistake(hole: Hole, kind: 'miss' | 'decoy' | 'empty'): void {
     const losesLife = kind !== 'empty';
     if (losesLife && hole.mouse === null) return;
+    const livesBefore = this.state.lives;
     const outcome = this.state.applyMistake(losesLife, kind !== 'miss');
     if (!outcome) return;
 
-    if (losesLife) this.field.clearMouse(hole, kind === 'decoy');
+    if (losesLife) {
+      const damage = { shield_absorbed: outcome.protected, lives_lost: livesBefore - this.state.lives };
+      this.resolveMouse(hole, kind === 'decoy' ? 'decoy_clicked' : 'escaped', damage);
+      if (kind === 'decoy') {
+        this.run?.track('decoy_clicked', { ...damage, phase: this.state.gameStage, lives_remaining: this.state.lives });
+      }
+      this.field.clearMouse(hole, kind === 'decoy');
+    }
     if (outcome.protected) {
       this.ui.showShieldSaved();
       return;
@@ -616,9 +684,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private endGame(): void {
+    const durationSec = this.run?.durationSec ?? 0;
     const result = finishRound(this.state, this.progress, this.partyTask,
       this.hadRecordAtGameStart ? this.bestScoreAtGameStart : undefined);
     if (!result) return;
+    this.run?.pause();
+    for (const rewardId of result.gardenRewards) {
+      this.run?.track('garden_reward_unlocked', {
+        reward_id: rewardId, total_points: result.totalPoints, is_first_reward: rewardId === FIRST_GARDEN_REWARD,
+      });
+    }
+    this.run?.track('game_over', {
+      score: result.score, phase: result.gameStage, best_streak: result.bestStreak,
+      duration_sec: durationSec, outcome: 'defeat',
+      first_garden_reward_unlocked: this.progress.snapshot.unlockedRewards.includes(FIRST_GARDEN_REWARD),
+    });
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;
     this.resetAppearanceEffects();
@@ -639,6 +719,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.run = undefined;
     this.partyTask = undefined;
     this.phaseTransitionTimer?.remove();
     this.phaseTransitionTimer = undefined;

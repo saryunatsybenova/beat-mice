@@ -69,7 +69,8 @@ export class MouseField {
   private prediction?: MousePlan & { hole: Hole; marker: Phaser.GameObjects.Container };
 
   constructor(private readonly scene: Phaser.Scene, private readonly onHoleFreed: (hole: Hole) => void,
-    private readonly onMouseAppeared: (hole: Hole, predicted: boolean, convertedByClover: boolean) => void) {}
+    private readonly onMouseAppeared: (hole: Hole, predicted: boolean, convertedByClover: boolean) => void,
+    private readonly onMouseExpired: (hole: Hole, losesLife: boolean) => void) {}
 
   get gardenBounds() {
     return {
@@ -242,23 +243,23 @@ export class MouseField {
     this.prediction = undefined;
   }
 
-  spawnPredictedMouse(baseVisibleMs: number, miss: (hole: Hole) => void): void {
+  spawnPredictedMouse(baseVisibleMs: number): void {
     if (!this.prediction) return;
     const { hole, type, convertedByClover } = this.prediction;
     this.cancelPrediction();
     if (this.isFree(hole)) {
-      this.placeMouse(hole, this.visibleTime(baseVisibleMs, type), miss, { type, convertedByClover }, true);
+      this.placeMouse(hole, this.visibleTime(baseVisibleMs, type), { type, convertedByClover }, true);
     }
   }
 
-  spawnMouse(baseVisibleMs: number, miss: (hole: Hole) => void, requested: MouseType = 'normal',
+  spawnMouse(baseVisibleMs: number, requested: MouseType = 'normal',
     cloverRemaining = 0, flowerActive = false, goldenLimit: number = GARDEN_EVENTS.normalGoldenLimit): void {
     const hole = this.randomFreeHole();
     if (!hole) return;
     const plan = this.planMouse(requested, cloverRemaining, flowerActive, goldenLimit);
     // Обычный запасной выбор сохраняет прежний таймер, превращение использует время показа золотой.
     const visibleType = plan.convertedByClover ? plan.type : requested;
-    this.placeMouse(hole, this.visibleTime(baseVisibleMs, visibleType), miss, plan, false);
+    this.placeMouse(hole, this.visibleTime(baseVisibleMs, visibleType), plan, false);
   }
 
   private planMouse(requested: MouseType, cloverRemaining: number, flowerActive: boolean, goldenLimit: number): MousePlan {
@@ -274,7 +275,7 @@ export class MouseField {
     return baseVisibleMs * (type === 'helmet' ? BALANCE.helmetVisibleTimeMultiplier : 1);
   }
 
-  private placeMouse(hole: Hole, visibleMs: number, miss: (hole: Hole) => void, { type, convertedByClover }: MousePlan,
+  private placeMouse(hole: Hole, visibleMs: number, { type, convertedByClover }: MousePlan,
     predicted: boolean): void {
     const appearance = makeMouse(this.scene, hole.x, hole.y, type, this.mouseLook);
     const mouse = appearance.object;
@@ -286,8 +287,7 @@ export class MouseField {
     hole.helmetRemoved = false;
     hole.hideTimer = this.scene.time.delayedCall(visibleMs, () => {
       if (hole.mouse !== mouse) return;
-      if (type === 'decoy' || type === 'friendly' || type === 'golden') this.clearMouse(hole);
-      else miss(hole);
+      this.onMouseExpired(hole, type === 'normal' || type === 'helmet');
     });
     this.onMouseAppeared(hole, predicted, convertedByClover);
   }
